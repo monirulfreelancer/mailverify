@@ -266,6 +266,259 @@ function UserRow({ row, canEdit, isSelf, token, onUpdate }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Payment requests                                                            */
+/* -------------------------------------------------------------------------- */
+
+const PAYMENTS_PAGE_SIZE = 50;
+
+const PAYMENT_STATUS = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+};
+
+function PaymentBadge({ status }) {
+  const cls = PAYMENT_STATUS[status] || 'unknown';
+  const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+  return <span className={`badge ${cls}`}>{label}</span>;
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function PaymentRow({ row, token, onPatch }) {
+  const [working, setWorking] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [adminNote, setAdminNote] = useState('');
+  const [msg, setMsg] = useState(null); // { type, text }
+  const msgTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(msgTimer.current), []);
+
+  function flash(type, text) {
+    setMsg({ type, text });
+    clearTimeout(msgTimer.current);
+    msgTimer.current = setTimeout(() => setMsg(null), 4000);
+  }
+
+  async function approve() {
+    if (working) return;
+    setWorking(true);
+    try {
+      await api.adminApprovePayment(token, row.id);
+      onPatch(row.id, { status: 'approved' });
+      flash('ok', 'Approved & credited');
+    } catch (err) {
+      flash('err', mutationError(err));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function reject() {
+    if (working) return;
+    setWorking(true);
+    try {
+      await api.adminRejectPayment(token, row.id, adminNote.trim() || undefined);
+      onPatch(row.id, { status: 'rejected', admin_note: adminNote.trim() });
+      setRejecting(false);
+      setAdminNote('');
+      flash('ok', 'Rejected');
+    } catch (err) {
+      flash('err', mutationError(err));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const isPending = row.status === 'pending';
+
+  return (
+    <tr>
+      <td className="cell-email">{row.user_email}</td>
+      <td style={{ textTransform: 'capitalize' }}>{row.method}</td>
+      <td className="cell-score">{formatNum(row.amount)}</td>
+      <td className="cell-score">{formatNum(row.credits)}</td>
+      <td className="mono">{row.transaction_id || '—'}</td>
+      <td className="cell-muted" title={row.sender_info || ''}>{row.sender_info || '—'}</td>
+      <td><PaymentBadge status={row.status} /></td>
+      <td className="cell-muted">{formatDateTime(row.created_at)}</td>
+      <td className="pay-actions">
+        {isPending ? (
+          rejecting ? (
+            <div className="pay-reject">
+              <input
+                className="input"
+                type="text"
+                placeholder="Reason (optional)"
+                value={adminNote}
+                onChange={(e) => setAdminNote(e.target.value)}
+                disabled={working}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') reject();
+                  if (e.key === 'Escape') setRejecting(false);
+                }}
+              />
+              <button className="btn btn-danger btn-xs" onClick={reject} disabled={working}>
+                {working ? <Spinner size={12} /> : 'Confirm'}
+              </button>
+              <button
+                className="btn btn-ghost btn-xs"
+                onClick={() => setRejecting(false)}
+                disabled={working}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="pay-btns">
+              <button className="btn btn-primary btn-xs" onClick={approve} disabled={working}>
+                {working ? <Spinner size={12} onDark /> : 'Approve'}
+              </button>
+              <button
+                className="btn btn-danger btn-xs"
+                onClick={() => setRejecting(true)}
+                disabled={working}
+              >
+                Reject
+              </button>
+            </div>
+          )
+        ) : (
+          row.admin_note ? <span className="cell-muted">{row.admin_note}</span> : <span className="text-muted">—</span>
+        )}
+        {msg && (
+          <div className={`row-msg ${msg.type === 'ok' ? 'ok' : 'err'}`} style={{ marginTop: 6 }}>
+            {msg.text}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function PaymentsSection({ token }) {
+  const [filter, setFilter] = useState('pending'); // 'pending' | 'all'
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.adminListPayments(token, {
+        status: filter === 'pending' ? 'pending' : '',
+        limit: PAYMENTS_PAGE_SIZE,
+        offset: 0,
+      });
+      setRows(data.requests || []);
+      setTotal(typeof data.total === 'number' ? data.total : (data.requests || []).length);
+    } catch (err) {
+      setError(mutationError(err));
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, filter]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handlePatch = useCallback((id, patch) => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }, []);
+
+  const pendingCount = rows.filter((r) => r.status === 'pending').length;
+
+  return (
+    <div className="mt-24">
+      <div className="row-between" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div className="card-title" style={{ marginBottom: 0 }}>
+          Payment requests
+          {filter === 'pending' && pendingCount > 0 && (
+            <span className="admin-pill" style={{ marginLeft: 8 }}>{pendingCount} pending</span>
+          )}
+        </div>
+        <div className="seg">
+          <button
+            type="button"
+            className={`seg-btn${filter === 'pending' ? ' on' : ''}`}
+            onClick={() => setFilter('pending')}
+          >
+            Pending
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${filter === 'all' ? ' on' : ''}`}
+            onClick={() => setFilter('all')}
+          >
+            All
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {loading ? (
+        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+          <Spinner size={24} />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="card">
+          <div className="empty">
+            <div className="empty-icon">🧾</div>
+            <h3>No payment requests</h3>
+            <p>{filter === 'pending' ? 'There are no pending requests right now.' : 'No requests to show.'}</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="data admin-table payments-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                  <th>Credits</th>
+                  <th>Transaction ID</th>
+                  <th>Sender</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <PaymentRow key={row.id} row={row} token={token} onPatch={handlePatch} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pagination">
+            <span className="range">
+              Showing {rows.length} of {formatNum(total)}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -438,6 +691,8 @@ export default function Admin() {
           </>
         )}
       </div>
+
+      <PaymentsSection token={token} />
     </>
   );
 }

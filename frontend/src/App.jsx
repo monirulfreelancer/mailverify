@@ -10,6 +10,7 @@ import Verify from './pages/Verify';
 import Bulk from './pages/Bulk';
 import History from './pages/History';
 import ApiKeys from './pages/ApiKeys';
+import BuyCredits from './pages/BuyCredits';
 import Admin from './pages/Admin';
 
 /**
@@ -114,6 +115,7 @@ export default function App() {
         <Route path="/bulk" element={<Bulk />} />
         <Route path="/history" element={<History />} />
         <Route path="/api-keys" element={<ApiKeys />} />
+        <Route path="/buy-credits" element={<BuyCredits />} />
       </Route>
 
       {/* Admin/manager only — same shell, role-gated. */}

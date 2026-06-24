@@ -153,6 +153,28 @@ export const api = {
       body: { role },
       token,
     }),
+
+  // --- Payments (customer) ---
+  paymentsGetPackages: (token) => request('/payments/packages', { token }),
+  paymentsGetMethods: (token) => request('/payments/methods', { token }),
+  paymentsCreateRequest: (token, body) =>
+    request('/payments/requests', { method: 'POST', body, token }),
+  paymentsListMyRequests: (token) => request('/payments/requests', { token }),
+
+  // --- Payments (admin/manager) ---
+  adminListPayments: (token, { status = '', limit = 50, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (status) params.set('status', status);
+    return request(`/admin/payments?${params.toString()}`, { token });
+  },
+  adminApprovePayment: (token, id) =>
+    request(`/admin/payments/${id}/approve`, { method: 'POST', token }),
+  adminRejectPayment: (token, id, adminNote) =>
+    request(`/admin/payments/${id}/reject`, {
+      method: 'POST',
+      body: { admin_note: adminNote },
+      token,
+    }),
 };
 
 /**

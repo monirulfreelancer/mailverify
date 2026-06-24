@@ -77,6 +77,12 @@ const ICONS = {
       <path d="m9 12 2 2 4-4" />
     </>
   ),
+  buy: (
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+    </>
+  ),
 };
 
 // Base nav items shown to every authenticated user.
@@ -86,6 +92,7 @@ const NAV = [
   { to: '/bulk', label: 'Bulk Verify', icon: 'bulk' },
   { to: '/history', label: 'History', icon: 'history' },
   { to: '/api-keys', label: 'API Keys', icon: 'keys' },
+  { to: '/buy-credits', label: 'Buy Credits', icon: 'buy' },
 ];
 
 export default function AppLayout({ children }) {
@@ -143,7 +150,10 @@ export default function AppLayout({ children }) {
           <div className="credits-caption">Validity: Lifetime</div>
           <button
             className="btn btn-primary btn-block"
-            onClick={() => setComingSoon('buy')}
+            onClick={() => {
+              closeDrawer();
+              navigate('/buy-credits');
+            }}
           >
             Buy Credits
           </button>
@@ -205,7 +215,7 @@ export default function AppLayout({ children }) {
         </main>
       </div>
 
-      {/* ---------------- "Coming soon" modal ---------------- */}
+      {/* ---------------- "Coming soon" modal (Refer & Earn) ---------------- */}
       {comingSoon && (
         <div className="modal-overlay" onClick={() => setComingSoon(null)}>
           <div
@@ -215,15 +225,12 @@ export default function AppLayout({ children }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-emoji" aria-hidden="true">
-              {comingSoon === 'buy' ? '💳' : '🎁'}
+              🎁
             </div>
-            <h3>
-              {comingSoon === 'buy' ? 'Buy Credits' : 'Refer & Earn'}
-            </h3>
+            <h3>Refer &amp; Earn</h3>
             <p>
-              Coming soon — {comingSoon === 'buy'
-                ? 'payments are launching shortly. You’ll be able to top up your balance right here.'
-                : 'invite friends and earn free credits. This program is launching soon.'}
+              Coming soon — invite friends and earn free credits. This program is
+              launching soon.
             </p>
             <button
               className="btn btn-primary btn-block"
