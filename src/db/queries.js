@@ -770,6 +770,257 @@ async function getUserStats(userId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Admin / manager dashboard
+// ---------------------------------------------------------------------------
+
+/**
+ * Platform-wide totals for the admin dashboard. Several lightweight aggregate
+ * queries (run in parallel) rather than one giant join — clearer and each can
+ * use its own index.
+ *
+ * @returns {Promise<object>}
+ */
+async function getAdminStats() {
+  const [users, verifSingle, bulkResults, credits, bulkJobs, today] =
+    await Promise.all([
+      query(
+        `SELECT
+           COUNT(*)::int                                       AS total_users,
+           COUNT(*) FILTER (WHERE status = 'active')::int      AS active_users,
+           COUNT(*) FILTER (WHERE status = 'suspended')::int   AS suspended_users,
+           COUNT(*) FILTER (WHERE status = 'banned')::int      AS banned_users
+         FROM users`
+      ),
+      query(`SELECT COUNT(*)::bigint AS n FROM verification_results`),
+      query(`SELECT COUNT(*)::bigint AS n FROM bulk_results WHERE status <> 'pending'`),
+      query(`SELECT COALESCE(SUM(balance), 0)::bigint AS total FROM credits`),
+      query(`SELECT COUNT(*)::int AS n FROM bulk_jobs`),
+      query(
+        `SELECT
+           (SELECT COUNT(*) FROM verification_results
+             WHERE created_at >= date_trunc('day', now()))
+         + (SELECT COUNT(*) FROM bulk_results
+             WHERE status <> 'pending' AND created_at >= date_trunc('day', now()))
+           AS n`
+      ),
+    ]);
+
+  const u = users.rows[0];
+  const totalVerifications =
+    parseInt(verifSingle.rows[0].n, 10) + parseInt(bulkResults.rows[0].n, 10);
+
+  return {
+    total_users: u.total_users,
+    active_users: u.active_users,
+    suspended_users: u.suspended_users,
+    banned_users: u.banned_users,
+    total_verifications: totalVerifications,
+    total_credits_outstanding: parseInt(credits.rows[0].total, 10),
+    total_bulk_jobs: bulkJobs.rows[0].n,
+    verifications_today: parseInt(today.rows[0].n, 10),
+  };
+}
+
+/**
+ * Paginated user list for the admin dashboard, with credit balance and a
+ * best-effort usage count (single results + bulk addresses processed). Optional
+ * case-insensitive email substring filter.
+ *
+ * @param {object} opts
+ * @param {number} opts.limit
+ * @param {number} opts.offset
+ * @param {string|null} [opts.search]
+ * @returns {Promise<{ users: Array, total: number }>}
+ */
+async function listUsersAdmin({ limit, offset, search = null }) {
+  const term = search && search.trim() ? search.trim() : null;
+
+  const listSql = `
+    SELECT
+      u.id, u.email, u.role, u.status, u.created_at,
+      COALESCE(c.balance, 0) AS credits,
+      (
+        (SELECT COUNT(*) FROM verification_results vr WHERE vr.user_id = u.id)
+        + COALESCE((SELECT SUM(bj.processed) FROM bulk_jobs bj WHERE bj.user_id = u.id), 0)
+      )::bigint AS usage_count
+    FROM users u
+    LEFT JOIN credits c ON c.user_id = u.id
+    WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
+    ORDER BY u.id
+    LIMIT $2 OFFSET $3
+  `;
+  const countSql = `
+    SELECT COUNT(*)::int AS total
+    FROM users u
+    WHERE ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%')
+  `;
+
+  const [list, count] = await Promise.all([
+    query(listSql, [term, limit, offset]),
+    query(countSql, [term]),
+  ]);
+
+  const users = list.rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    role: r.role,
+    status: r.status,
+    credits: r.credits,
+    usage_count: parseInt(r.usage_count, 10),
+    created_at: r.created_at,
+  }));
+
+  return { users, total: count.rows[0].total };
+}
+
+/**
+ * Detailed view of one user for the admin dashboard: public profile, credit
+ * balance, and recent-activity counts. Returns null if the user doesn't exist.
+ *
+ * @param {number} userId
+ * @returns {Promise<object|null>}
+ */
+async function getUserDetailAdmin(userId) {
+  const userRes = await query(`SELECT * FROM users WHERE id = $1`, [userId]);
+  const user = publicUser(userRes.rows[0]);
+  if (!user) return null;
+
+  const [balance, single, bulk] = await Promise.all([
+    getCreditBalance(userId),
+    query(
+      `SELECT COUNT(*)::int AS n FROM verification_results WHERE user_id = $1`,
+      [userId]
+    ),
+    query(
+      `SELECT
+         COUNT(*)::int                         AS jobs,
+         COALESCE(SUM(processed), 0)::int       AS emails_processed
+       FROM bulk_jobs WHERE user_id = $1`,
+      [userId]
+    ),
+  ]);
+
+  return {
+    user,
+    credits: balance,
+    activity: {
+      single_verifications: single.rows[0].n,
+      bulk_jobs: bulk.rows[0].jobs,
+      bulk_emails_processed: bulk.rows[0].emails_processed,
+    },
+  };
+}
+
+/**
+ * Admin credit adjustment, transactional and recorded in credit_ledger.
+ *
+ *   mode 'add' — newBalance = GREATEST(current + amount, 0)   (amount may be < 0)
+ *   mode 'set' — newBalance = GREATEST(amount, 0)
+ *
+ * The ledger row records the ACTUAL delta applied (after clamping), so the
+ * append-only log always reconciles with the balance. Returns null if the user
+ * doesn't exist.
+ *
+ * @param {number} userId      target user
+ * @param {number} amount      integer credits
+ * @param {'add'|'set'} mode
+ * @param {number} adminId     id of the admin making the change (audited in reason)
+ * @returns {Promise<number|null>} the new balance, or null if user not found
+ */
+async function adminAdjustCredits(userId, amount, mode, adminId) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Make sure the target exists (and lock its credits row if present).
+    const userRes = await client.query(
+      `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
+      [userId]
+    );
+    if (userRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const curRes = await client.query(
+      `SELECT balance FROM credits WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const current = curRes.rows[0] ? curRes.rows[0].balance : 0;
+
+    const newBalance =
+      mode === 'set'
+        ? Math.max(amount, 0)
+        : Math.max(current + amount, 0);
+    const delta = newBalance - current;
+    const reason = `admin_${mode} (by admin #${adminId})`;
+
+    await client.query(
+      `INSERT INTO credits (user_id, balance, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (user_id)
+       DO UPDATE SET balance = $2, updated_at = now()`,
+      [userId, newBalance]
+    );
+
+    // Record even a zero-delta adjustment so the admin action is auditable.
+    await client.query(
+      `INSERT INTO credit_ledger (user_id, change, reason)
+       VALUES ($1, $2, $3)`,
+      [userId, delta, reason]
+    );
+
+    await client.query('COMMIT');
+    return newBalance;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Set a user's status. Returns the updated public user, or null if not found.
+ * @param {number} userId
+ * @param {'active'|'suspended'|'banned'} status
+ * @returns {Promise<object|null>}
+ */
+async function setUserStatus(userId, status) {
+  const { rows } = await query(
+    `UPDATE users SET status = $2 WHERE id = $1 RETURNING *`,
+    [userId, status]
+  );
+  return publicUser(rows[0]);
+}
+
+/**
+ * Set a user's role. Returns the updated public user, or null if not found.
+ * @param {number} userId
+ * @param {'user'|'manager'|'admin'} role
+ * @returns {Promise<object|null>}
+ */
+async function setUserRole(userId, role) {
+  const { rows } = await query(
+    `UPDATE users SET role = $2 WHERE id = $1 RETURNING *`,
+    [userId, role]
+  );
+  return publicUser(rows[0]);
+}
+
+/**
+ * Count users currently holding the admin role. Used to prevent an action from
+ * removing the last admin and locking everyone out.
+ * @returns {Promise<number>}
+ */
+async function countAdmins() {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'`
+  );
+  return rows[0].n;
+}
+
 module.exports = {
   DOMAIN_CACHE_TTL_MS,
   SIGNUP_FREE_CREDITS,
@@ -806,4 +1057,12 @@ module.exports = {
   revokeApiKey,
   getRecentResults,
   getUserStats,
+  // Admin / manager dashboard
+  getAdminStats,
+  listUsersAdmin,
+  getUserDetailAdmin,
+  adminAdjustCredits,
+  setUserStatus,
+  setUserRole,
+  countAdmins,
 };

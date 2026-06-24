@@ -53,4 +53,43 @@ function requireUser(req, res, next) {
   }
 }
 
-module.exports = { requireUser, extractBearer };
+/**
+ * requireAdmin — gate a route to admin users only.
+ *
+ * Runs AFTER requireUser, so req.authUser is already populated from the verified
+ * JWT. Responds 403 (not 401) when a valid session simply lacks the admin role,
+ * to distinguish "not logged in" from "not allowed".
+ */
+function requireAdmin(req, res, next) {
+  if (!req.authUser) {
+    // Defensive: should never happen if requireUser ran first.
+    return res.status(401).json({ error: 'authentication required' });
+  }
+  if (req.authUser.role !== 'admin') {
+    return res.status(403).json({ error: 'admin access required' });
+  }
+  return next();
+}
+
+/**
+ * requireManagerOrAdmin — gate a route to managers or admins.
+ *
+ * Same contract as requireAdmin: runs after requireUser, returns 403 when the
+ * authenticated user's role is neither 'manager' nor 'admin'.
+ */
+function requireManagerOrAdmin(req, res, next) {
+  if (!req.authUser) {
+    return res.status(401).json({ error: 'authentication required' });
+  }
+  if (req.authUser.role !== 'admin' && req.authUser.role !== 'manager') {
+    return res.status(403).json({ error: 'manager or admin access required' });
+  }
+  return next();
+}
+
+module.exports = {
+  requireUser,
+  extractBearer,
+  requireAdmin,
+  requireManagerOrAdmin,
+};

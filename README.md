@@ -19,6 +19,7 @@ Useful scripts:
 | `npm test`        | Run the engine sample harness.                          |
 | `npm run verify`  | CLI verify: `node cli.js someone@example.com`.          |
 | `npm run migrate` | Apply `src/db/schema.sql` to `DATABASE_URL`.            |
+| `npm run migrate:admin` | Promote the bootstrap accounts to the `admin` role. |
 | `npm run seed`    | Create the admin user + one API key (prints raw key).   |
 
 Without `DATABASE_URL` the app still runs (no persistence, no credits, auth falls
@@ -77,6 +78,61 @@ curl http://localhost:3000/api/v1/bulk/jobs/12/download -H "X-API-Key: $KEY" -o 
 The bulk worker runs **in-process** with the API server and starts automatically
 when `REDIS_URL` is set. The bulk tables (`bulk_jobs`, `bulk_results`) are part
 of `schema.sql`; on an existing database add just them with `npm run migrate:bulk`.
+
+## Admin API
+
+The platform has three roles, stored in `users.role`:
+
+| Role      | Can do                                                                        |
+| --------- | ----------------------------------------------------------------------------- |
+| `user`    | Normal customer — verify, bulk, manage own account.                           |
+| `manager` | Read the admin dashboard (stats, users, user detail) **and** adjust credits.  |
+| `admin`   | Everything a manager can, **plus** change any user's status and role.         |
+
+All admin endpoints are mounted under **`/api/v1/admin`** and require a **Bearer
+JWT** (dashboard session — not an API key). Each route runs the normal JWT auth
+first, then a role gate that returns **403** if the role is insufficient. Without
+a configured database they return `503`.
+
+| Method & path                          | Role          | Body / query                              | What it does                                                              |
+| -------------------------------------- | ------------- | ----------------------------------------- | ------------------------------------------------------------------------ |
+| `GET   /api/v1/admin/stats`            | manager/admin | —                                         | Platform totals (users by status, verifications, credits outstanding, bulk jobs, verifications today). |
+| `GET   /api/v1/admin/users`            | manager/admin | `?limit&offset&search`                    | Paginated user list (default limit 50) with credits + usage count; `search` filters by email substring. Returns `{ users, total }`. |
+| `GET   /api/v1/admin/users/:id`        | manager/admin | —                                         | One user's detail: profile, credits, recent-activity counts.             |
+| `POST  /api/v1/admin/users/:id/credits`| manager/admin | `{ amount, mode }` (`mode`=`add`\|`set`)  | Adjust credits. `add` increments (may be negative, clamped at 0); `set` sets an absolute balance (≥0). Recorded in `credit_ledger`. Returns the new balance. |
+| `PATCH /api/v1/admin/users/:id/status` | **admin**     | `{ status }` (`active`\|`suspended`\|`banned`) | Change account status. Suspended/banned users are rejected (`403 account suspended`) on verify + bulk. An admin can't suspend/ban themselves. |
+| `PATCH /api/v1/admin/users/:id/role`   | **admin**     | `{ role }` (`user`\|`manager`\|`admin`)   | Change a user's role. An admin can't demote themselves, and the change is rejected if it would leave zero admins. |
+
+### Making yourself an admin
+
+1. Make sure your account exists (sign up, or `npm run seed` for `admin@mailverify.local`).
+2. Run the admin migration, which promotes `admin@mailverify.local` and
+   `test@example.com` to `admin` (idempotent):
+   ```bash
+   npm run migrate:admin
+   ```
+   To promote a different account, sign up with one of those emails first, or
+   edit `ADMIN_EMAILS` in `src/db/migrate-admin.js`.
+3. Log in (`POST /api/v1/auth/login`) to get a fresh JWT — the new role is
+   embedded in the token — and call the `/api/v1/admin/*` endpoints with
+   `Authorization: Bearer <token>`.
+
+Example:
+
+```bash
+# Stats (manager or admin)
+curl http://localhost:3000/api/v1/admin/stats -H "Authorization: Bearer $JWT"
+
+# Grant 500 credits to user 42
+curl -X POST http://localhost:3000/api/v1/admin/users/42/credits \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"amount":500,"mode":"add"}'
+
+# Suspend user 42 (admin only)
+curl -X PATCH http://localhost:3000/api/v1/admin/users/42/status \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"status":"suspended"}'
+```
 
 ## Deploying on Coolify
 

@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   id            SERIAL PRIMARY KEY,
   email         TEXT UNIQUE NOT NULL,
   password_hash TEXT,
-  role          TEXT NOT NULL DEFAULT 'user',   -- 'user' | 'admin'
-  status        TEXT NOT NULL DEFAULT 'active',
+  role          TEXT NOT NULL DEFAULT 'user',   -- 'user' | 'manager' | 'admin'
+  status        TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'suspended' | 'banned'
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

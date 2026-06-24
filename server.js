@@ -8,6 +8,7 @@ const config = require('./src/config');
 const routes = require('./src/api/routes');
 const accountRoutes = require('./src/api/account-routes');
 const bulkRoutes = require('./src/api/bulk-routes');
+const adminRoutes = require('./src/api/admin-routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
 const { startWorker } = require('./src/queue/worker');
 const db = require('./src/db/pool');
@@ -37,7 +38,7 @@ if (config.frontendUrls.length === 0) {
 app.use(
   cors({
     origin: allowedOrigins,
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'X-API-Key', 'Content-Type'],
     credentials: true,
   })
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
 app.use('/api/v1', routes); // health + verify (X-API-Key or Bearer)
 app.use('/api/v1', accountRoutes); // auth (signup/login/me) + account (dashboard)
 app.use('/api/v1', bulkRoutes); // bulk upload + jobs (background queue)
+app.use('/api/v1/admin', adminRoutes); // admin/manager dashboard (JWT + role gates)
 
 // --- 404 fallback ----------------------------------------------------------
 app.use((req, res) => {

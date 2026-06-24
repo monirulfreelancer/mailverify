@@ -103,6 +103,10 @@ async function authenticateVerify(req, res, next) {
         if (!user) {
           return res.status(401).json({ error: 'invalid or missing API key' });
         }
+        // Suspended/banned accounts may hold a valid key but must not verify.
+        if (user.status !== 'active') {
+          return res.status(403).json({ error: 'account suspended' });
+        }
         req.user = { id: user.id, email: user.email, role: user.role };
         req.apiKeyHash = keyHash;
         queries.touchApiKeyLastUsed(keyHash).catch((err) => {
@@ -119,10 +123,14 @@ async function authenticateVerify(req, res, next) {
         } catch (err) {
           return res.status(401).json({ error: 'invalid or expired token' });
         }
-        // Confirm the user still exists / is active.
+        // Confirm the user still exists.
         const user = await queries.getUserById(decoded.id);
-        if (!user || user.status !== 'active') {
+        if (!user) {
           return res.status(401).json({ error: 'invalid or expired token' });
+        }
+        // Suspended/banned accounts keep a valid token but cannot verify.
+        if (user.status !== 'active') {
+          return res.status(403).json({ error: 'account suspended' });
         }
         req.user = { id: user.id, email: user.email, role: user.role };
         return next();
