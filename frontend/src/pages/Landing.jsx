@@ -1,19 +1,23 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import Logo from '../components/Logo';
 import '../landing.css';
 
 /**
- * Marketing landing page shown at "/" for logged-OUT visitors.
- * (Authenticated users see the Dashboard instead — see src/App.jsx.)
+ * Marketing landing page served on the marketing host (goanglelead.com and,
+ * during dev, localhost). The app itself lives on a separate domain, so every
+ * auth call-to-action navigates to the app host with a full-page <a href>
+ * (NOT a react-router <Link>, which would stay on the marketing domain).
  *
  * There is no public verification API, so the hero email capture simply
- * routes the visitor to /signup, passing the typed email along as ?email=
- * so the signup form can prefill it.
+ * routes the visitor to the app's /signup, passing the typed email along as
+ * ?email= so the signup form can prefill it.
  *
  * All styles live in src/landing.css under the "lp-" prefix to avoid any
  * collision with the app's global styles.
  */
+
+// The app lives on a separate domain. All auth CTAs link here as absolute URLs.
+const APP_URL = 'https://app.goanglelead.com';
 
 /* ---------- Small inline SVG icon set (no external icon dependency) ---------- */
 
@@ -196,14 +200,16 @@ const FAQS = [
 /* ---------- Page ---------- */
 
 export default function Landing() {
-  const navigate = useNavigate();
   const [email, setEmail] = useState('');
 
-  // No public API — route to signup, prefilling the email if one was typed.
+  // No public API — send the visitor to the app's signup on the app host,
+  // prefilling the email if one was typed. Full-page navigation across domains.
   function handleHeroSubmit(e) {
     e.preventDefault();
     const trimmed = email.trim();
-    navigate(trimmed ? `/signup?email=${encodeURIComponent(trimmed)}` : '/signup');
+    window.location.href = trimmed
+      ? `${APP_URL}/signup?email=${encodeURIComponent(trimmed)}`
+      : `${APP_URL}/signup`;
   }
 
   return (
@@ -211,16 +217,16 @@ export default function Landing() {
       {/* ---------- Sticky nav ---------- */}
       <header className="lp-nav">
         <div className="lp-nav-inner">
-          <Link to="/" aria-label="mailverify home">
+          <a href="/" aria-label="mailverify home">
             <Logo />
-          </Link>
+          </a>
           <nav className="lp-nav-actions">
-            <Link to="/login" className="btn btn-ghost">
+            <a href={`${APP_URL}/login`} className="btn btn-ghost">
               Log in
-            </Link>
-            <Link to="/signup" className="btn btn-primary">
+            </a>
+            <a href={`${APP_URL}/signup`} className="btn btn-primary">
               Sign up free
-            </Link>
+            </a>
           </nav>
         </div>
       </header>
@@ -390,12 +396,12 @@ export default function Landing() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  to="/signup"
+                <a
+                  href={`${APP_URL}/signup`}
                   className={`btn btn-block btn-lg ${plan.popular ? 'btn-primary' : 'btn-secondary'}`}
                 >
                   {plan.cta}
-                </Link>
+                </a>
               </div>
             ))}
           </div>
@@ -433,9 +439,9 @@ export default function Landing() {
               Create an account in seconds and get 25 free verifications — no credit card
               required.
             </p>
-            <Link to="/signup" className="btn btn-lg lp-btn-on-dark">
+            <a href={`${APP_URL}/signup`} className="btn btn-lg lp-btn-on-dark">
               Sign up free
-            </Link>
+            </a>
           </div>
         </div>
       </section>

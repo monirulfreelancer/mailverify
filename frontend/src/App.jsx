@@ -16,7 +16,18 @@ import ApiKeys from './pages/ApiKeys';
  * - While the session is being restored, show a full-page spinner.
  * - Protected routes redirect to /login when unauthenticated.
  * - /login and /signup redirect to / when already authenticated.
+ *
+ * Host split: the same build serves two domains.
+ * - Marketing host (goanglelead.com / www / localhost): "/" shows the Landing page.
+ * - App host (app.goanglelead.com): "/" never shows Landing — it behaves like the
+ *   old app ("/" -> Dashboard when authenticated, otherwise redirect to /login).
  */
+
+// True on the app host (app.goanglelead.com). Anything not starting with "app."
+// — goanglelead.com, www.goanglelead.com, localhost — is treated as marketing.
+function isAppHost() {
+  return window.location.hostname.startsWith('app.');
+}
 
 function FullPageLoader() {
   return (
@@ -39,12 +50,15 @@ function Protected({ children }) {
   );
 }
 
-// Home ("/"): marketing Landing page for logged-out visitors, Dashboard for
-// authenticated users. Replaces the old behavior of redirecting "/" to /login.
+// Home ("/"): host-dependent.
+// - Marketing host: always render the Landing page (regardless of auth).
+// - App host: never render Landing — Dashboard when authenticated, otherwise
+//   redirect to /login.
 function Home() {
   const { isAuthenticated, loading } = useAuth();
+  if (!isAppHost()) return <Landing />;
   if (loading) return <FullPageLoader />;
-  if (!isAuthenticated) return <Landing />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return (
     <>
       <Navbar />
