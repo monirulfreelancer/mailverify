@@ -4,6 +4,7 @@
   "description": "Email verification engine (offline-testable core). Chunk 1 of a larger verification SaaS.",
   "main": "src/engine/index.js",
   "scripts": {
+    "start": "node server.js",
     "test": "node test/verify.test.js",
     "verify": "node cli.js"
   },
@@ -17,6 +18,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.22.2"
   }
 }
