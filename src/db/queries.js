@@ -292,6 +292,240 @@ async function saveResult(jobId, userId, result) {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk jobs / bulk results (background bulk-verify — src/queue/worker.js)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a bulk job row (status 'queued'). The credits are reserved/charged by
+ * the caller BEFORE this; we just record how many were charged for auditing and
+ * potential refunds.
+ *
+ * @param {number} userId
+ * @param {string|null} filename
+ * @param {number} totalEmails
+ * @param {number} creditsCharged
+ * @returns {Promise<object>} the created bulk_jobs row
+ */
+async function createBulkJob(userId, filename, totalEmails, creditsCharged) {
+  const { rows } = await query(
+    `INSERT INTO bulk_jobs (user_id, filename, total_emails, credits_charged, status)
+     VALUES ($1, $2, $3, $4, 'queued')
+     RETURNING *`,
+    [userId, filename, totalEmails, creditsCharged]
+  );
+  return rows[0];
+}
+
+/**
+ * Insert the job's addresses as pending bulk_results rows. Done in chunks via a
+ * single multi-row INSERT per chunk so a 50k upload doesn't build one enormous
+ * statement. The worker later reads these back and fills in the verdicts.
+ *
+ * @param {number} bulkJobId
+ * @param {string[]} emails
+ * @returns {Promise<number>} number of rows inserted
+ */
+async function insertBulkResults(bulkJobId, emails) {
+  const CHUNK = 1000;
+  let inserted = 0;
+  for (let i = 0; i < emails.length; i += CHUNK) {
+    const slice = emails.slice(i, i + CHUNK);
+    // Build "($1,$2),($1,$3),..." placeholders; $1 is always bulkJobId.
+    const values = slice
+      .map((_, idx) => `($1, $${idx + 2}, 'pending')`)
+      .join(', ');
+    const params = [bulkJobId, ...slice];
+    const { rowCount } = await query(
+      `INSERT INTO bulk_results (bulk_job_id, email, status) VALUES ${values}`,
+      params
+    );
+    inserted += rowCount;
+  }
+  return inserted;
+}
+
+/**
+ * Fetch a batch of still-pending addresses for a job (worker side). Rows leave
+ * the pending set as soon as the worker writes their verdict, so paging by
+ * "status = 'pending'" naturally advances.
+ *
+ * @param {number} bulkJobId
+ * @param {number} limit
+ * @returns {Promise<Array<{id: number, email: string}>>}
+ */
+async function getPendingBulkResults(bulkJobId, limit) {
+  const { rows } = await query(
+    `SELECT id, email
+       FROM bulk_results
+      WHERE bulk_job_id = $1 AND status = 'pending'
+      ORDER BY id
+      LIMIT $2`,
+    [bulkJobId, limit]
+  );
+  return rows;
+}
+
+/**
+ * Write a single address's verdict into its bulk_results row.
+ * @param {number} resultId
+ * @param {{status: string, sub_status: string, score: number}} result
+ * @returns {Promise<void>}
+ */
+async function updateBulkResult(resultId, result) {
+  await query(
+    `UPDATE bulk_results
+        SET status = $2, sub_status = $3, score = $4
+      WHERE id = $1`,
+    [resultId, result.status, result.sub_status, result.score]
+  );
+}
+
+/**
+ * Atomically bump a bulk job's live progress counters by the given deltas.
+ * Called after each batch so GET /bulk/jobs/:id shows real-time progress.
+ *
+ * @param {number} bulkJobId
+ * @param {object} deltas
+ * @param {number} [deltas.processed]
+ * @param {number} [deltas.valid]
+ * @param {number} [deltas.invalid]
+ * @param {number} [deltas.catch_all]
+ * @param {number} [deltas.unknown]
+ * @returns {Promise<object>} the updated job row
+ */
+async function incrementBulkJobCounters(bulkJobId, deltas = {}) {
+  const { rows } = await query(
+    `UPDATE bulk_jobs SET
+       processed = processed + $2,
+       valid     = valid     + $3,
+       invalid   = invalid   + $4,
+       catch_all = catch_all + $5,
+       unknown   = unknown   + $6
+     WHERE id = $1
+     RETURNING *`,
+    [
+      bulkJobId,
+      deltas.processed || 0,
+      deltas.valid || 0,
+      deltas.invalid || 0,
+      deltas.catch_all || 0,
+      deltas.unknown || 0,
+    ]
+  );
+  return rows[0];
+}
+
+/**
+ * Flip a bulk job to 'processing' (worker just picked it up).
+ * @param {number} bulkJobId
+ * @returns {Promise<void>}
+ */
+async function markBulkJobProcessing(bulkJobId) {
+  await query(
+    `UPDATE bulk_jobs SET status = 'processing' WHERE id = $1`,
+    [bulkJobId]
+  );
+}
+
+/**
+ * Set a bulk job's terminal status ('completed' or 'failed') and stamp
+ * completed_at.
+ * @param {number} bulkJobId
+ * @param {'completed'|'failed'} status
+ * @returns {Promise<object>} the updated job row
+ */
+async function finishBulkJob(bulkJobId, status) {
+  const { rows } = await query(
+    `UPDATE bulk_jobs
+        SET status = $2, completed_at = now()
+      WHERE id = $1
+      RETURNING *`,
+    [bulkJobId, status]
+  );
+  return rows[0];
+}
+
+/**
+ * Count addresses in a job that were never processed (still 'pending'). Used to
+ * compute a partial refund if a job fails wholesale.
+ * @param {number} bulkJobId
+ * @returns {Promise<number>}
+ */
+async function countPendingBulkResults(bulkJobId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS n
+       FROM bulk_results
+      WHERE bulk_job_id = $1 AND status = 'pending'`,
+    [bulkJobId]
+  );
+  return rows[0] ? rows[0].n : 0;
+}
+
+/**
+ * List a user's bulk jobs, newest first.
+ * @param {number} userId
+ * @returns {Promise<Array>}
+ */
+async function listBulkJobs(userId) {
+  const { rows } = await query(
+    `SELECT id, filename, total_emails, processed, valid, invalid,
+            catch_all, unknown, status, credits_charged, created_at, completed_at
+       FROM bulk_jobs
+      WHERE user_id = $1
+      ORDER BY created_at DESC, id DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+/**
+ * Fetch one bulk job scoped to its owner (returns null if not found / not owned).
+ * @param {number} userId
+ * @param {number} bulkJobId
+ * @returns {Promise<object|null>}
+ */
+async function getBulkJob(userId, bulkJobId) {
+  const { rows } = await query(
+    `SELECT id, user_id, filename, total_emails, processed, valid, invalid,
+            catch_all, unknown, status, credits_charged, created_at, completed_at
+       FROM bulk_jobs
+      WHERE id = $1 AND user_id = $2`,
+    [bulkJobId, userId]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Fetch a job's by-internal-id metadata only (worker side — already trusted, no
+ * user scoping). Returns null if missing.
+ * @param {number} bulkJobId
+ * @returns {Promise<object|null>}
+ */
+async function getBulkJobById(bulkJobId) {
+  const { rows } = await query(
+    `SELECT * FROM bulk_jobs WHERE id = $1`,
+    [bulkJobId]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * All result rows for a job (for CSV download), oldest first.
+ * @param {number} bulkJobId
+ * @returns {Promise<Array<{email: string, status: string, sub_status: string, score: number}>>}
+ */
+async function getBulkResults(bulkJobId) {
+  const { rows } = await query(
+    `SELECT email, status, sub_status, score
+       FROM bulk_results
+      WHERE bulk_job_id = $1
+      ORDER BY id`,
+    [bulkJobId]
+  );
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // Domain cache
 // ---------------------------------------------------------------------------
 
@@ -548,6 +782,19 @@ module.exports = {
   updateJobProgress,
   completeJob,
   saveResult,
+  // Bulk jobs / results
+  createBulkJob,
+  insertBulkResults,
+  getPendingBulkResults,
+  updateBulkResult,
+  incrementBulkJobCounters,
+  markBulkJobProcessing,
+  finishBulkJob,
+  countPendingBulkResults,
+  listBulkJobs,
+  getBulkJob,
+  getBulkJobById,
+  getBulkResults,
   getDomainCache,
   setDomainCache,
   // Accounts

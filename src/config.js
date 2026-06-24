@@ -45,6 +45,25 @@ const config = {
 
   // Free credits granted on signup (mirrors queries.SIGNUP_FREE_CREDITS).
   signupFreeCredits: parseInt(process.env.SIGNUP_FREE_CREDITS || '25', 10),
+
+  // Redis connection string for the BullMQ bulk-verify queue. Empty => bulk
+  // verification is disabled (endpoints return 503, worker never starts).
+  redisUrl: process.env.REDIS_URL || '',
+
+  // Background bulk-verification tuning.
+  bulk: {
+    // Hard cap on addresses accepted in a single upload.
+    maxEmails: parseInt(process.env.BULK_MAX_EMAILS || '50000', 10),
+    // Credits charged per address (reserved up front at upload).
+    creditsPerEmail: 1,
+    // How many addresses the worker pulls from the DB per batch.
+    batchSize: parseInt(process.env.BULK_BATCH_SIZE || '200', 10),
+    // How many addresses are verified concurrently at any moment.
+    concurrency: parseInt(process.env.BULK_CONCURRENCY || '5', 10),
+    // Minimum gap between two probes to the SAME domain (politeness throttle),
+    // so we never hammer one mail server.
+    perDomainDelayMs: parseInt(process.env.BULK_PER_DOMAIN_DELAY_MS || '2000', 10),
+  },
 };
 
 module.exports = config;

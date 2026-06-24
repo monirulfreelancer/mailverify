@@ -100,3 +100,45 @@ CREATE TABLE IF NOT EXISTS domain_cache (
   is_disposable BOOLEAN,
   checked_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- bulk_jobs  (one row per uploaded file / background bulk-verify job)
+-- ---------------------------------------------------------------------------
+-- A bulk job is enqueued on BullMQ and processed by src/queue/worker.js. The
+-- counters below are incremented live as the worker churns through the list, so
+-- GET /api/v1/bulk/jobs/:id reflects real-time progress.
+CREATE TABLE IF NOT EXISTS bulk_jobs (
+  id              SERIAL PRIMARY KEY,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  filename        TEXT,
+  total_emails    INTEGER NOT NULL DEFAULT 0,
+  processed       INTEGER NOT NULL DEFAULT 0,
+  valid           INTEGER NOT NULL DEFAULT 0,
+  invalid         INTEGER NOT NULL DEFAULT 0,
+  catch_all       INTEGER NOT NULL DEFAULT 0,
+  unknown         INTEGER NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'queued',  -- queued|processing|completed|failed
+  credits_charged INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_bulk_jobs_user_id ON bulk_jobs (user_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- bulk_results  (one row per address in a bulk job)
+-- ---------------------------------------------------------------------------
+-- Rows are inserted with status 'pending' at upload time; the worker reads them
+-- from here (rather than from a huge job payload) and updates each in place with
+-- the engine's verdict.
+CREATE TABLE IF NOT EXISTS bulk_results (
+  id           SERIAL PRIMARY KEY,
+  bulk_job_id  INTEGER NOT NULL REFERENCES bulk_jobs(id),
+  email        TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',  -- pending until verified
+  sub_status   TEXT,
+  score        INTEGER,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bulk_results_job_id ON bulk_results (bulk_job_id);
+-- Speeds up the worker's "fetch next batch of pending rows" query.
+CREATE INDEX IF NOT EXISTS idx_bulk_results_pending ON bulk_results (bulk_job_id, status);

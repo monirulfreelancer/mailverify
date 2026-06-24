@@ -7,7 +7,9 @@ const cors = require('cors');
 const config = require('./src/config');
 const routes = require('./src/api/routes');
 const accountRoutes = require('./src/api/account-routes');
+const bulkRoutes = require('./src/api/bulk-routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
+const { startWorker } = require('./src/queue/worker');
 const db = require('./src/db/pool');
 
 /**
@@ -60,6 +62,7 @@ app.use((req, res, next) => {
 // --- Routes ----------------------------------------------------------------
 app.use('/api/v1', routes); // health + verify (X-API-Key or Bearer)
 app.use('/api/v1', accountRoutes); // auth (signup/login/me) + account (dashboard)
+app.use('/api/v1', bulkRoutes); // bulk upload + jobs (background queue)
 
 // --- 404 fallback ----------------------------------------------------------
 app.use((req, res) => {
@@ -132,10 +135,24 @@ async function start() {
     console.log(`  health:  GET  /api/v1/health`);
     console.log(`  single:  POST /api/v1/verify/single`);
     console.log(`  batch:   POST /api/v1/verify/batch`);
+    console.log(`  bulk:    POST /api/v1/bulk/upload`);
     if (config.apiKeys.length > 0) {
       console.log(`  auth:    X-API-Key required (${config.apiKeys.length} key(s) loaded)`);
     }
   });
+
+  // Start the background bulk-verify worker IN-PROCESS, but only when Redis is
+  // configured. startWorker() no-ops (and logs) without REDIS_URL, and the Worker
+  // runs on its own event loop so it never blocks the HTTP server. Guard it so a
+  // worker init hiccup can't take the API down.
+  if (process.env.REDIS_URL) {
+    try {
+      startWorker();
+    } catch (err) {
+      console.error('[startup] failed to start bulk worker:', err && err.message);
+    }
+  }
+
   return server;
 }
 
