@@ -1,6 +1,6 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import Navbar from './components/Navbar';
+import AppLayout from './components/AppLayout';
 import Spinner from './components/Spinner';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -39,32 +39,22 @@ function FullPageLoader() {
   );
 }
 
-// Wraps protected pages: renders the navbar + page, or redirects to /login.
-function Protected({ children }) {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return <FullPageLoader />;
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return (
-    <>
-      <Navbar />
-      <main className="page">{children}</main>
-    </>
-  );
-}
-
-// Wraps the admin page: authenticated AND role-gated to admin/manager.
-// Normal users are redirected to "/" so they never see the admin UI.
-function AdminOnly({ children }) {
+// Layout route for protected pages: renders the sidebar shell (AppLayout) with
+// the routed page inside its <Outlet />, or redirects to /login.
+// When `adminOnly` is set, the page is additionally role-gated to admin/manager
+// and normal users are redirected to "/" so they never see the admin UI.
+function ProtectedLayout({ adminOnly = false }) {
   const { isAuthenticated, loading, user } = useAuth();
   if (loading) return <FullPageLoader />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  const role = user?.role;
-  if (role !== 'admin' && role !== 'manager') return <Navigate to="/" replace />;
+  if (adminOnly) {
+    const role = user?.role;
+    if (role !== 'admin' && role !== 'manager') return <Navigate to="/" replace />;
+  }
   return (
-    <>
-      <Navbar />
-      <main className="page">{children}</main>
-    </>
+    <AppLayout>
+      <Outlet />
+    </AppLayout>
   );
 }
 
@@ -78,12 +68,9 @@ function Home() {
   if (loading) return <FullPageLoader />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return (
-    <>
-      <Navbar />
-      <main className="page">
-        <Dashboard />
-      </main>
-    </>
+    <AppLayout>
+      <Dashboard />
+    </AppLayout>
   );
 }
 
@@ -120,46 +107,19 @@ export default function App() {
       />
 
       <Route path="/" element={<Home />} />
-      <Route
-        path="/verify"
-        element={
-          <Protected>
-            <Verify />
-          </Protected>
-        }
-      />
-      <Route
-        path="/bulk"
-        element={
-          <Protected>
-            <Bulk />
-          </Protected>
-        }
-      />
-      <Route
-        path="/history"
-        element={
-          <Protected>
-            <History />
-          </Protected>
-        }
-      />
-      <Route
-        path="/api-keys"
-        element={
-          <Protected>
-            <ApiKeys />
-          </Protected>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <AdminOnly>
-            <Admin />
-          </AdminOnly>
-        }
-      />
+
+      {/* Authenticated pages share the sidebar shell (AppLayout). */}
+      <Route element={<ProtectedLayout />}>
+        <Route path="/verify" element={<Verify />} />
+        <Route path="/bulk" element={<Bulk />} />
+        <Route path="/history" element={<History />} />
+        <Route path="/api-keys" element={<ApiKeys />} />
+      </Route>
+
+      {/* Admin/manager only — same shell, role-gated. */}
+      <Route element={<ProtectedLayout adminOnly />}>
+        <Route path="/admin" element={<Admin />} />
+      </Route>
 
       {/* Unknown routes -> home (which itself redirects to /login if needed). */}
       <Route path="*" element={<Navigate to="/" replace />} />
