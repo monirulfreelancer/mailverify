@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MarketingNav from '../components/MarketingNav';
 import MarketingFooter from '../components/MarketingFooter';
 import '../landing.css';
@@ -82,6 +82,61 @@ function IconCheck() {
     </svg>
   );
 }
+function IconShield() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+}
+function IconTarget() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  );
+}
+function IconCard() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+    </svg>
+  );
+}
+function IconKeyboard() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+    </svg>
+  );
+}
+function IconScan() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M3 12h18" />
+    </svg>
+  );
+}
+function IconDownload() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M7 10l5 5 5-5M12 15V3" />
+    </svg>
+  );
+}
 
 /* ---------- Content data ---------- */
 
@@ -118,18 +173,35 @@ const FEATURES = [
   },
 ];
 
+const TRUST_SIGNALS = [
+  { icon: <IconBolt />, label: 'Real-time SMTP' },
+  { icon: <IconShield />, label: 'GDPR-friendly' },
+  { icon: <IconTarget />, label: 'Up to 99% accuracy' },
+  { icon: <IconCard />, label: 'No credit card required' },
+];
+
+const STATS = [
+  { value: 'Up to 99%', label: 'Verification accuracy' },
+  { value: 'Real time', label: 'Live SMTP mailbox checks' },
+  { value: 'Catch-all', label: '& disposable detection' },
+  { value: '25 free', label: 'Verifications on signup' },
+];
+
 const STEPS = [
   {
+    icon: <IconKeyboard />,
     title: 'Enter or upload emails',
     desc: 'Paste a single address in your dashboard or send it through the API.',
     soon: false,
   },
   {
+    icon: <IconScan />,
     title: 'We run every check',
     desc: 'Syntax, MX records, SMTP mailbox, catch-all and disposable detection — in real time.',
     soon: false,
   },
   {
+    icon: <IconDownload />,
     title: 'Get clean, deliverable lists',
     desc: 'Receive a clear status and confidence score for every address you verify.',
     soon: false,
@@ -203,6 +275,31 @@ const FAQS = [
 export default function Landing() {
   const [email, setEmail] = useState('');
 
+  // Subtle scroll-in animations: reveal any element tagged `.lp-reveal` once it
+  // scrolls into view. Pure vanilla IntersectionObserver — no animation library.
+  // Respects prefers-reduced-motion by simply revealing everything immediately.
+  useEffect(() => {
+    const els = document.querySelectorAll('.lp-reveal');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !('IntersectionObserver' in window)) {
+      els.forEach((el) => el.classList.add('is-visible'));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries, obs) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+
   // No public API — send the visitor to the app's signup on the app host,
   // prefilling the email if one was typed. Full-page navigation across domains.
   function handleHeroSubmit(e) {
@@ -221,21 +318,21 @@ export default function Landing() {
       {/* ---------- Hero ---------- */}
       <section className="lp-hero">
         <div className="lp-container lp-hero-grid">
-          <div>
-            <span className="lp-pill">
+          <div className="lp-hero-copy">
+            <span className="lp-pill lp-enter lp-enter-1">
               <span className="dot" />
               Real-time SMTP verification
             </span>
-            <h1>
+            <h1 className="lp-enter lp-enter-2">
               Verify email addresses <span className="lp-grad">in real time.</span>
             </h1>
-            <p className="lp-hero-sub">
+            <p className="lp-hero-sub lp-enter lp-enter-3">
               Stop bounces before they happen. mailverify checks every address against
               live mail servers so you protect your sender reputation and reach real
               inboxes.
             </p>
 
-            <form className="lp-hero-form" onSubmit={handleHeroSubmit} noValidate>
+            <form className="lp-hero-form lp-enter lp-enter-4" onSubmit={handleHeroSubmit} noValidate>
               <input
                 className="input"
                 type="email"
@@ -250,20 +347,20 @@ export default function Landing() {
                 Verify for free
               </button>
             </form>
-            <p className="lp-trust-text">
+            <p className="lp-trust-text lp-enter lp-enter-5">
               <strong>25 free verifications</strong> • No credit card required
             </p>
           </div>
 
           {/* Decorative mock result card (static — mirrors the real ResultCard look) */}
-          <div className="lp-hero-visual" aria-hidden="true">
+          <div className="lp-hero-visual lp-enter lp-enter-4" aria-hidden="true">
             <div className="lp-mock-card">
               <div className="lp-mock-head">
                 <div>
                   <div className="lp-mock-email">jordan@company.com</div>
                   <div className="lp-mock-sub">deliverable mailbox</div>
                 </div>
-                <span className="lp-mock-badge">Valid</span>
+                <span className="lp-mock-badge lp-mock-badge-pulse">Valid</span>
               </div>
               <div className="lp-mock-body">
                 <div className="lp-mock-score-top">
@@ -299,17 +396,31 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ---------- Trust / logos strip ---------- */}
-      <section className="lp-logos">
+      {/* ---------- Trust signals strip ---------- */}
+      <section className="lp-trust">
         <div className="lp-container">
-          <p className="lp-logos-label">Trusted by senders who care about deliverability</p>
-          <div className="lp-logos-row">
-            {/* Placeholder muted logo blocks — no real brands */}
-            <div className="lp-logo-block">Northwind</div>
-            <div className="lp-logo-block">Acme Mail</div>
-            <div className="lp-logo-block">Lumen</div>
-            <div className="lp-logo-block">Outpost</div>
-            <div className="lp-logo-block">Skyline</div>
+          <p className="lp-trust-label">Built for senders who care about deliverability</p>
+          <div className="lp-trust-row">
+            {TRUST_SIGNALS.map((t) => (
+              <div className="lp-trust-badge" key={t.label}>
+                <span className="lp-trust-badge-icon">{t.icon}</span>
+                {t.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Stats band ---------- */}
+      <section className="lp-stats">
+        <div className="lp-container">
+          <div className="lp-stats-grid">
+            {STATS.map((s) => (
+              <div className="lp-stat lp-reveal" key={s.label}>
+                <div className="lp-stat-value">{s.value}</div>
+                <div className="lp-stat-label">{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -323,8 +434,12 @@ export default function Landing() {
             <p>A complete verification engine behind a simple dashboard and API.</p>
           </div>
           <div className="lp-features-grid">
-            {FEATURES.map((f) => (
-              <div className="lp-feature" key={f.title}>
+            {FEATURES.map((f, i) => (
+              <div
+                className="lp-feature lp-reveal"
+                key={f.title}
+                style={{ transitionDelay: `${(i % 3) * 70}ms` }}
+              >
                 <div className="lp-feature-icon">{f.icon}</div>
                 <h3>{f.title}</h3>
                 <p>{f.desc}</p>
@@ -344,8 +459,15 @@ export default function Landing() {
           </div>
           <div className="lp-steps">
             {STEPS.map((s, i) => (
-              <div className="lp-step" key={s.title}>
-                <div className="lp-step-num">{i + 1}</div>
+              <div
+                className="lp-step lp-reveal"
+                key={s.title}
+                style={{ transitionDelay: `${i * 90}ms` }}
+              >
+                <div className="lp-step-top">
+                  <div className="lp-step-icon">{s.icon}</div>
+                  <span className="lp-step-num">{i + 1}</span>
+                </div>
                 <h3>
                   {s.title}
                   {i === 0 && <span className="lp-badge-soon">Bulk CSV — Coming soon</span>}
@@ -366,8 +488,12 @@ export default function Landing() {
             <p>Start free with 25 verifications. Upgrade as you grow.</p>
           </div>
           <div className="lp-pricing-grid">
-            {PLANS.map((plan) => (
-              <div className={`lp-price-card${plan.popular ? ' popular' : ''}`} key={plan.name}>
+            {PLANS.map((plan, i) => (
+              <div
+                className={`lp-price-card lp-reveal${plan.popular ? ' popular' : ''}`}
+                key={plan.name}
+                style={{ transitionDelay: `${i * 70}ms` }}
+              >
                 {plan.popular && <span className="lp-price-tag">Most popular</span>}
                 <div className="lp-price-name">{plan.name}</div>
                 <div className="lp-price-amount">
@@ -420,7 +546,7 @@ export default function Landing() {
       {/* ---------- Final CTA ---------- */}
       <section className="lp-section">
         <div className="lp-container">
-          <div className="lp-cta">
+          <div className="lp-cta lp-reveal">
             <h2>Start verifying for free</h2>
             <p>
               Create an account in seconds and get 25 free verifications — no credit card

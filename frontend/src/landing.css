@@ -219,9 +219,12 @@
 .lp-hero {
   position: relative;
   overflow: hidden;
-  padding: 80px 0 72px;
+  padding: 84px 0 76px;
+  background:
+    radial-gradient(680px 420px at 88% -8%, rgba(147, 51, 234, 0.10), transparent 70%),
+    linear-gradient(180deg, var(--primary-50) 0%, var(--bg) 58%);
 }
-/* Soft radial accent glow behind the hero */
+/* Soft radial accent glow behind the hero headline */
 .lp-hero::before {
   content: '';
   position: absolute;
@@ -232,10 +235,24 @@
   height: 600px;
   background: radial-gradient(
     ellipse at center,
-    rgba(99, 102, 241, 0.14) 0%,
+    rgba(99, 102, 241, 0.16) 0%,
     rgba(99, 102, 241, 0) 65%
   );
   pointer-events: none;
+}
+/* Faint dotted grid texture for subtle depth (very low contrast) */
+.lp-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 0%, transparent 75%);
+  pointer-events: none;
+}
+.lp-hero-grid {
+  z-index: 1;
 }
 .lp-hero-grid {
   position: relative;
@@ -334,13 +351,33 @@
   position: relative;
 }
 .lp-mock-card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 24px 50px -12px rgba(67, 56, 202, 0.22),
+    var(--shadow-lg);
   overflow: hidden;
-  /* gentle float for a polished feel */
-  transform: rotate(-1deg);
+  z-index: 1;
+  /* gentle, continuous float for an elevated, premium feel */
+  animation: lp-float 6s ease-in-out infinite;
+}
+/* Soft glow puddle beneath the floating card */
+.lp-hero-visual::before {
+  content: '';
+  position: absolute;
+  inset: 8% 6% -6%;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(
+    ellipse at center,
+    rgba(99, 102, 241, 0.22) 0%,
+    rgba(99, 102, 241, 0) 70%
+  );
+  filter: blur(20px);
+  z-index: 0;
+  pointer-events: none;
 }
 .lp-mock-head {
   display: flex;
@@ -437,42 +474,93 @@
   font-weight: 600;
 }
 
-/* ---------- Trust / logos strip ---------- */
-.lp-logos {
+/* ---------- Trust signals strip ---------- */
+.lp-trust {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
-  padding: 36px 0;
+  padding: 30px 0;
 }
-.lp-logos-label {
+.lp-trust-label {
   text-align: center;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
-.lp-logos-row {
+.lp-trust-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 16px 40px;
+  gap: 12px 16px;
 }
-/* Placeholder muted "logo" blocks — purely decorative, no real brands */
-.lp-logo-block {
-  height: 26px;
-  width: 118px;
-  border-radius: 7px;
-  background: linear-gradient(90deg, #e9ecf3, #f3f5fa);
+/* Honest, generic trust badges (no fake company logos) */
+.lp-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.lp-trust-badge:hover {
+  border-color: var(--primary-100);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.lp-trust-badge-icon {
+  display: inline-flex;
+  color: var(--primary-600);
+}
+
+/* ---------- Stats band ---------- */
+.lp-stats {
+  padding: 56px 0;
+  background:
+    radial-gradient(900px 240px at 50% 0%, rgba(99, 102, 241, 0.10), transparent 70%),
+    linear-gradient(180deg, var(--primary-50), var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+.lp-stats-grid {
   display: grid;
-  place-items: center;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-  opacity: 0.85;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .lp-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px 16px;
+  }
+}
+.lp-stat-value {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  background: linear-gradient(120deg, var(--primary-700) 0%, var(--purple) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@media (max-width: 480px) {
+  .lp-stat-value {
+    font-size: 30px;
+  }
+}
+.lp-stat-label {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-soft);
 }
 
 /* ---------- Features grid ---------- */
@@ -543,19 +631,58 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: 28px 24px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.lp-step:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+/* Connecting flow arrow between steps (desktop only) */
+.lp-steps .lp-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 48px;
+  right: -19px;
+  width: 16px;
+  height: 16px;
+  border-top: 2px solid var(--border-strong);
+  border-right: 2px solid var(--border-strong);
+  transform: rotate(45deg);
+  z-index: 1;
+}
+@media (max-width: 760px) {
+  .lp-steps .lp-step:not(:last-child)::after {
+    display: none;
+  }
+}
+.lp-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.lp-step-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--primary-600);
+  background: var(--primary-50);
+  border: 1px solid var(--primary-100);
 }
 .lp-step-num {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   font-weight: 800;
-  font-size: 16px;
+  font-size: 14px;
   color: #fff;
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-700) 100%);
   box-shadow: var(--shadow-sm);
-  margin-bottom: 16px;
 }
 .lp-step h3 {
   font-size: 16.5px;
@@ -944,4 +1071,122 @@
 .lp-contact-optional {
   font-weight: 400;
   color: var(--text-muted);
+}
+
+/* ============================================================================
+   Motion — entrance animations, scroll reveals, floating card, badge pulse.
+   All purely CSS / IntersectionObserver-driven, gated by prefers-reduced-motion.
+   ============================================================================ */
+
+/* Smooth in-page anchor scrolling (Features / Pricing / FAQ jump links) */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Hero entrance — fade + slide up, staggered via delay classes */
+@keyframes lp-enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.lp-enter {
+  opacity: 0;
+  animation: lp-enter-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.lp-enter-1 { animation-delay: 0.05s; }
+.lp-enter-2 { animation-delay: 0.13s; }
+.lp-enter-3 { animation-delay: 0.21s; }
+.lp-enter-4 { animation-delay: 0.30s; }
+.lp-enter-5 { animation-delay: 0.40s; }
+
+/* Continuous gentle float for the hero demo card (keeps a slight tilt) */
+@keyframes lp-float {
+  0%, 100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(-1deg);
+  }
+}
+
+/* Faint pulse ring on the "Valid" badge to draw a tasteful bit of attention */
+.lp-mock-badge-pulse {
+  position: relative;
+}
+.lp-mock-badge-pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45);
+  animation: lp-badge-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes lp-badge-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.40);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(22, 163, 74, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
+  }
+}
+
+/* Scroll-in reveal — .is-visible is toggled by an IntersectionObserver */
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.lp-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- Button polish (scoped to marketing pages) ---------- */
+.lp .btn-primary {
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.18), 0 6px 16px -6px rgba(79, 70, 229, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.lp .btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.22), 0 10px 22px -8px rgba(79, 70, 229, 0.55);
+}
+.lp .btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.lp .btn-lg {
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+/* Respect reduced-motion: disable all motion, reveal everything immediately */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .lp-enter,
+  .lp-mock-card,
+  .lp-mock-badge-pulse::after {
+    animation: none !important;
+  }
+  .lp-enter {
+    opacity: 1;
+  }
+  .lp-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .lp .btn-primary:hover:not(:disabled) {
+    transform: none;
+  }
 }
