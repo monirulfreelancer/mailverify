@@ -142,3 +142,53 @@ CREATE TABLE IF NOT EXISTS bulk_results (
 CREATE INDEX IF NOT EXISTS idx_bulk_results_job_id ON bulk_results (bulk_job_id);
 -- Speeds up the worker's "fetch next batch of pending rows" query.
 CREATE INDEX IF NOT EXISTS idx_bulk_results_pending ON bulk_results (bulk_job_id, status);
+
+-- ---------------------------------------------------------------------------
+-- credit_packages  (purchasable credit bundles shown to customers)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS credit_packages (
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  credits      INTEGER NOT NULL,
+  price_amount NUMERIC(10,2) NOT NULL,
+  currency     TEXT NOT NULL DEFAULT 'BDT',
+  is_active    BOOLEAN NOT NULL DEFAULT true,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Seed the default bundles, but only the first time (table empty). The
+-- WHERE NOT EXISTS guard keeps this idempotent on re-runs of schema.sql.
+INSERT INTO credit_packages (name, credits, price_amount, currency, sort_order)
+SELECT v.name, v.credits, v.price_amount, 'BDT', v.sort_order
+FROM (VALUES
+  ('Starter',  1000,    200.00, 1),
+  ('Basic',    5000,    800.00, 2),
+  ('Pro',      25000,  3000.00, 3),
+  ('Business', 100000, 10000.00, 4)
+) AS v(name, credits, price_amount, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM credit_packages);
+
+-- ---------------------------------------------------------------------------
+-- payment_requests  (manual top-up requests: bKash / Rocket / bank transfer)
+-- ---------------------------------------------------------------------------
+-- A customer sends money manually and submits a request; an admin/manager
+-- reviews it and, on approval, the customer's credit balance is topped up.
+CREATE TABLE IF NOT EXISTS payment_requests (
+  id             SERIAL PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  package_id     INTEGER REFERENCES credit_packages(id),
+  method         TEXT NOT NULL,                    -- 'bkash' | 'rocket' | 'bank'
+  amount         NUMERIC(10,2) NOT NULL,
+  credits        INTEGER NOT NULL,
+  sender_info    TEXT,                             -- their bKash/Rocket number or bank ref
+  transaction_id TEXT,
+  note           TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'approved' | 'rejected'
+  admin_id       INTEGER REFERENCES users(id),
+  admin_note     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests (user_id);

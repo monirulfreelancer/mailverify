@@ -10,6 +10,7 @@
     "migrate": "node src/db/migrate.js",
     "migrate:bulk": "node src/db/migrate-bulk.js",
     "migrate:admin": "node src/db/migrate-admin.js",
+    "migrate:payments": "node src/db/migrate-payments.js",
     "seed": "node src/db/seed.js"
   },
   "keywords": [

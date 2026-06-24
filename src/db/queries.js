@@ -1021,6 +1021,259 @@ async function countAdmins() {
   return rows[0].n;
 }
 
+// ---------------------------------------------------------------------------
+// Manual payments / credit top-ups
+// ---------------------------------------------------------------------------
+
+/**
+ * Active credit packages for the customer-facing pricing list, cheapest sort
+ * first.
+ * @returns {Promise<Array<{id:number,name:string,credits:number,price_amount:string,currency:string}>>}
+ */
+async function listActivePackages() {
+  const { rows } = await query(
+    `SELECT id, name, credits, price_amount, currency
+       FROM credit_packages
+      WHERE is_active = true
+      ORDER BY sort_order, id`
+  );
+  return rows;
+}
+
+/**
+ * Fetch one active credit package by id (server-side source of truth for
+ * credits/amount). Returns null if missing or inactive.
+ * @param {number} packageId
+ * @returns {Promise<object|null>}
+ */
+async function getActivePackageById(packageId) {
+  const { rows } = await query(
+    `SELECT id, name, credits, price_amount, currency
+       FROM credit_packages
+      WHERE id = $1 AND is_active = true`,
+    [packageId]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Count a user's still-pending payment requests (used for light rate-limiting).
+ * @param {number} userId
+ * @returns {Promise<number>}
+ */
+async function countPendingPaymentRequests(userId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS n
+       FROM payment_requests
+      WHERE user_id = $1 AND status = 'pending'`,
+    [userId]
+  );
+  return rows[0] ? rows[0].n : 0;
+}
+
+/**
+ * Create a manual top-up request (status 'pending').
+ *
+ * @param {object} req
+ * @param {number} req.userId
+ * @param {number|null} req.packageId
+ * @param {string} req.method        'bkash' | 'rocket' | 'bank'
+ * @param {number} req.amount
+ * @param {number} req.credits
+ * @param {string} req.senderInfo
+ * @param {string} req.transactionId
+ * @param {string|null} [req.note]
+ * @returns {Promise<object>} the created payment_requests row
+ */
+async function createPaymentRequest({
+  userId,
+  packageId = null,
+  method,
+  amount,
+  credits,
+  senderInfo,
+  transactionId,
+  note = null,
+}) {
+  const { rows } = await query(
+    `INSERT INTO payment_requests
+       (user_id, package_id, method, amount, credits, sender_info, transaction_id, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, package_id, method, amount, credits, sender_info,
+               transaction_id, note, status, created_at`,
+    [userId, packageId, method, amount, credits, senderInfo, transactionId, note]
+  );
+  return rows[0];
+}
+
+/**
+ * A user's own payment requests, most recent first.
+ * @param {number} userId
+ * @returns {Promise<Array>}
+ */
+async function listUserPaymentRequests(userId) {
+  const { rows } = await query(
+    `SELECT id, method, amount, credits, status, transaction_id,
+            created_at, reviewed_at, admin_note
+       FROM payment_requests
+      WHERE user_id = $1
+      ORDER BY created_at DESC, id DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+/**
+ * Admin/manager list of payment requests, joined with the requesting user's
+ * email. Optional status filter; pending rows surface first by default.
+ *
+ * @param {object} opts
+ * @param {string|null} [opts.status]
+ * @param {number} opts.limit
+ * @param {number} opts.offset
+ * @returns {Promise<{ requests: Array, total: number }>}
+ */
+async function listPaymentRequestsAdmin({ status = null, limit, offset }) {
+  const statusFilter = status || null;
+
+  const listSql = `
+    SELECT pr.id, pr.user_id, u.email, pr.package_id, pr.method, pr.amount,
+           pr.credits, pr.sender_info, pr.transaction_id, pr.note, pr.status,
+           pr.admin_id, pr.admin_note, pr.created_at, pr.reviewed_at
+      FROM payment_requests pr
+      JOIN users u ON u.id = pr.user_id
+     WHERE ($1::text IS NULL OR pr.status = $1)
+     ORDER BY (pr.status = 'pending') DESC, pr.created_at DESC, pr.id DESC
+     LIMIT $2 OFFSET $3
+  `;
+  const countSql = `
+    SELECT COUNT(*)::int AS total
+      FROM payment_requests pr
+     WHERE ($1::text IS NULL OR pr.status = $1)
+  `;
+
+  const [list, count] = await Promise.all([
+    query(listSql, [statusFilter, limit, offset]),
+    query(countSql, [statusFilter]),
+  ]);
+
+  return { requests: list.rows, total: count.rows[0].total };
+}
+
+/**
+ * Approve a pending payment request: mark approved, stamp the reviewer, and
+ * credit the user's balance by request.credits — all inside one transaction,
+ * writing a credit_ledger row (reason 'manual_topup', job_id = payment id).
+ *
+ * Guards against double-approval: the row is locked FOR UPDATE and only acted on
+ * if it is currently 'pending'.
+ *
+ * @param {number} requestId
+ * @param {number} adminId
+ * @returns {Promise<{ status: 'ok'|'not_found'|'not_pending', request?: object, balance?: number }>}
+ */
+async function approvePaymentRequest(requestId, adminId) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    const cur = await client.query(
+      `SELECT * FROM payment_requests WHERE id = $1 FOR UPDATE`,
+      [requestId]
+    );
+    if (cur.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { status: 'not_found' };
+    }
+    const pr = cur.rows[0];
+    if (pr.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return { status: 'not_pending', request: pr };
+    }
+
+    const upd = await client.query(
+      `UPDATE payment_requests
+          SET status = 'approved', admin_id = $2, reviewed_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [requestId, adminId]
+    );
+
+    // Credit the user (upsert) + append the ledger entry referencing this payment.
+    const credited = await client.query(
+      `INSERT INTO credits (user_id, balance, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (user_id)
+       DO UPDATE SET balance = credits.balance + $2, updated_at = now()
+       RETURNING balance`,
+      [pr.user_id, pr.credits]
+    );
+
+    await client.query(
+      `INSERT INTO credit_ledger (user_id, change, reason, job_id)
+       VALUES ($1, $2, 'manual_topup', $3)`,
+      [pr.user_id, pr.credits, requestId]
+    );
+
+    await client.query('COMMIT');
+    return {
+      status: 'ok',
+      request: upd.rows[0],
+      balance: credited.rows[0].balance,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Reject a pending payment request: mark rejected, stamp the reviewer + note. No
+ * credit is granted. Only acts if the request is currently 'pending'.
+ *
+ * @param {number} requestId
+ * @param {number} adminId
+ * @param {string|null} [adminNote]
+ * @returns {Promise<{ status: 'ok'|'not_found'|'not_pending', request?: object }>}
+ */
+async function rejectPaymentRequest(requestId, adminId, adminNote = null) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    const cur = await client.query(
+      `SELECT * FROM payment_requests WHERE id = $1 FOR UPDATE`,
+      [requestId]
+    );
+    if (cur.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { status: 'not_found' };
+    }
+    if (cur.rows[0].status !== 'pending') {
+      await client.query('ROLLBACK');
+      return { status: 'not_pending', request: cur.rows[0] };
+    }
+
+    const upd = await client.query(
+      `UPDATE payment_requests
+          SET status = 'rejected', admin_id = $2, admin_note = $3, reviewed_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [requestId, adminId, adminNote]
+    );
+
+    await client.query('COMMIT');
+    return { status: 'ok', request: upd.rows[0] };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   DOMAIN_CACHE_TTL_MS,
   SIGNUP_FREE_CREDITS,
@@ -1065,4 +1318,13 @@ module.exports = {
   setUserStatus,
   setUserRole,
   countAdmins,
+  // Manual payments / credit top-ups
+  listActivePackages,
+  getActivePackageById,
+  countPendingPaymentRequests,
+  createPaymentRequest,
+  listUserPaymentRequests,
+  listPaymentRequestsAdmin,
+  approvePaymentRequest,
+  rejectPaymentRequest,
 };

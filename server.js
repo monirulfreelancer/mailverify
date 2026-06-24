@@ -9,6 +9,7 @@ const routes = require('./src/api/routes');
 const accountRoutes = require('./src/api/account-routes');
 const bulkRoutes = require('./src/api/bulk-routes');
 const adminRoutes = require('./src/api/admin-routes');
+const paymentRoutes = require('./src/api/payment-routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
 const { startWorker } = require('./src/queue/worker');
 const db = require('./src/db/pool');
@@ -64,6 +65,7 @@ app.use((req, res, next) => {
 app.use('/api/v1', routes); // health + verify (X-API-Key or Bearer)
 app.use('/api/v1', accountRoutes); // auth (signup/login/me) + account (dashboard)
 app.use('/api/v1', bulkRoutes); // bulk upload + jobs (background queue)
+app.use('/api/v1/payments', paymentRoutes); // manual payments / credit top-ups (JWT)
 app.use('/api/v1/admin', adminRoutes); // admin/manager dashboard (JWT + role gates)
 
 // --- 404 fallback ----------------------------------------------------------

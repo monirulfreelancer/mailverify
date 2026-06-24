@@ -20,6 +20,7 @@ Useful scripts:
 | `npm run verify`  | CLI verify: `node cli.js someone@example.com`.          |
 | `npm run migrate` | Apply `src/db/schema.sql` to `DATABASE_URL`.            |
 | `npm run migrate:admin` | Promote the bootstrap accounts to the `admin` role. |
+| `npm run migrate:payments` | Create the payment tables + seed default credit packages. |
 | `npm run seed`    | Create the admin user + one API key (prints raw key).   |
 
 Without `DATABASE_URL` the app still runs (no persistence, no credits, auth falls
@@ -134,6 +135,74 @@ curl -X PATCH http://localhost:3000/api/v1/admin/users/42/status \
   -d '{"status":"suspended"}'
 ```
 
+## Manual payments (credit top-ups)
+
+There is **no external payment gateway**. Customers send money manually (bKash,
+Rocket, or bank transfer), submit a top-up request, and an admin/manager verifies
+it and approves — which credits the account. Approval is transactional and writes
+a `credit_ledger` entry (`reason = 'manual_topup'`, `job_id =` the payment id).
+
+Two new tables back this:
+
+- **`credit_packages`** — purchasable bundles shown to customers. Seeded with
+  four defaults (1,000 cr / 200 BDT · 5,000 / 800 · 25,000 / 3,000 · 100,000 /
+  10,000) the first time the table is empty.
+- **`payment_requests`** — one row per top-up request (`pending` → `approved` /
+  `rejected`).
+
+Both are part of `schema.sql`; on an existing database add just them (and seed
+the packages) with:
+
+```bash
+npm run migrate:payments
+```
+
+### Customer endpoints
+
+All require a **Bearer JWT** (mounted under **`/api/v1/payments`**); without a
+configured database they return `503`.
+
+| Method & path                     | Body / query                                                                  | What it does                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `GET  /api/v1/payments/packages`  | —                                                                             | List active credit packages (`id, name, credits, price_amount, currency`).  |
+| `GET  /api/v1/payments/methods`   | —                                                                             | Manual payment instructions (bKash/Rocket numbers, bank details, note) from env. |
+| `POST /api/v1/payments/requests`  | `{ package_id?, method, amount, credits, sender_info, transaction_id, note? }` | Submit a top-up request. `method` ∈ `bkash`\|`rocket`\|`bank`. If `package_id` is given, the package's `credits`/`amount` are the source of truth (client numbers ignored). Capped at 5 pending requests per user (`429`). |
+| `GET  /api/v1/payments/requests`  | —                                                                             | The user's own requests, most recent first (status, amount, credits, etc.). |
+
+### Admin endpoints
+
+Mounted under **`/api/v1/admin`**, all require a **Bearer JWT** + the
+`manager`/`admin` role gate.
+
+| Method & path                              | Role          | Body / query             | What it does                                                                 |
+| ------------------------------------------ | ------------- | ------------------------ | --------------------------------------------------------------------------- |
+| `GET  /api/v1/admin/payments`              | manager/admin | `?status&limit&offset`   | List payment requests joined with user email (pending first). Returns `{ requests, total }`. |
+| `POST /api/v1/admin/payments/:id/approve`  | manager/admin | —                        | Approve a **pending** request: credit the user by `credits` in a transaction, stamp reviewer. Double-approval is rejected (`409`). Returns the request + new balance. |
+| `POST /api/v1/admin/payments/:id/reject`   | manager/admin | `{ admin_note? }`        | Reject a **pending** request (no credit granted). Returns the updated request. |
+
+### Payment method details (env)
+
+Configure the manual payment instructions via env (sensible defaults so it works
+out of the box):
+
+| Variable            | Default                                                       |
+| ------------------- | ------------------------------------------------------------ |
+| `PAY_BKASH_NUMBER`  | `+8801710363553`                                             |
+| `PAY_ROCKET_NUMBER` | `+8801710363553`                                             |
+| `PAY_BANK_DETAILS`  | JSON or multiline string; defaults to First Century Bank (SWIFT `FCNSUS32`, Routing `061120084`, Account `4015474546031`, CHECKING, Beneficiary "Monirul Islam"). If valid JSON it is returned as an object; otherwise as a string. |
+| `PAY_NOTE`          | Instruction text shown to customers.                         |
+
+```bash
+# Submit a top-up request for a package
+curl -X POST http://localhost:3000/api/v1/payments/requests \
+  -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" \
+  -d '{"package_id":2,"method":"bkash","sender_info":"+8801XXXXXXXXX","transaction_id":"TXN123"}'
+
+# Admin: approve it (credits the user)
+curl -X POST http://localhost:3000/api/v1/admin/payments/7/approve \
+  -H "Authorization: Bearer $ADMIN_JWT"
+```
+
 ## Deploying on Coolify
 
 This repo ships a `Dockerfile` (node:20-alpine) and `.dockerignore`. Point a
@@ -155,6 +224,10 @@ below. The server binds `0.0.0.0:$PORT`, so Coolify's proxy can reach it.
 | `SMTP_HELO_DOMAIN`  | recommended | Domain announced in EHLO (e.g. `verify.yourdomain.com`).           |
 | `SMTP_FROM_ADDRESS` | recommended | MAIL FROM address for the probe (no mail is ever sent).            |
 | `SMTP_TIMEOUT_MS`   | no       | Per-connection SMTP timeout, default `10000`.                         |
+| `PAY_BKASH_NUMBER`  | no       | bKash number shown for manual top-ups (default `+8801710363553`).     |
+| `PAY_ROCKET_NUMBER` | no       | Rocket number shown for manual top-ups (default `+8801710363553`).    |
+| `PAY_BANK_DETAILS`  | no       | Bank details (JSON or multiline string) for manual top-ups; sensible default. |
+| `PAY_NOTE`          | no       | Instruction text shown with the payment methods.                      |
 
 \* Without `DATABASE_URL` the service runs in degraded mode (no persistence/credits).
 

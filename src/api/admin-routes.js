@@ -22,6 +22,9 @@ const {
  *   POST  /admin/users/:id/credits     (manager|admin)  { amount, mode }
  *   PATCH /admin/users/:id/status      (admin)          { status }
  *   PATCH /admin/users/:id/role        (admin)          { role }
+ *   GET   /admin/payments              (manager|admin)  ?status&limit&offset
+ *   POST  /admin/payments/:id/approve  (manager|admin)
+ *   POST  /admin/payments/:id/reject   (manager|admin)  { admin_note? }
  *
  * requireUser already returns 503 when no database is configured, so the
  * handlers below can assume persistence is available.
@@ -34,6 +37,10 @@ const USERS_MAX_LIMIT = 200;
 
 const VALID_STATUSES = ['active', 'suspended', 'banned'];
 const VALID_ROLES = ['user', 'manager', 'admin'];
+
+const PAYMENTS_DEFAULT_LIMIT = 50;
+const PAYMENTS_MAX_LIMIT = 200;
+const VALID_PAYMENT_STATUSES = ['pending', 'approved', 'rejected'];
 
 /** Parse a positive integer route param, or null if it isn't one. */
 function parseId(raw) {
@@ -254,6 +261,113 @@ router.patch(
         return res.status(404).json({ error: 'user not found' });
       }
       return res.json({ user: updated });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// GET /admin/payments  — list manual top-up requests (manager|admin)
+//   ?status=pending|approved|rejected  ?limit  ?offset
+// ---------------------------------------------------------------------------
+router.get(
+  '/payments',
+  requireUser,
+  requireManagerOrAdmin,
+  async (req, res, next) => {
+    try {
+      let limit = parseInt(req.query.limit, 10);
+      let offset = parseInt(req.query.offset, 10);
+      if (!Number.isFinite(limit) || limit <= 0) limit = PAYMENTS_DEFAULT_LIMIT;
+      if (limit > PAYMENTS_MAX_LIMIT) limit = PAYMENTS_MAX_LIMIT;
+      if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+      let status = null;
+      if (typeof req.query.status === 'string' && req.query.status.trim()) {
+        status = req.query.status.trim();
+        if (!VALID_PAYMENT_STATUSES.includes(status)) {
+          return res.status(400).json({
+            error: `"status" must be one of: ${VALID_PAYMENT_STATUSES.join(', ')}`,
+          });
+        }
+      }
+
+      const { requests, total } = await queries.listPaymentRequestsAdmin({
+        status,
+        limit,
+        offset,
+      });
+      return res.json({ requests, total, limit, offset });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// POST /admin/payments/:id/approve  — credit the user (manager|admin)
+// ---------------------------------------------------------------------------
+router.post(
+  '/payments/:id/approve',
+  requireUser,
+  requireManagerOrAdmin,
+  async (req, res, next) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) {
+        return res.status(400).json({ error: 'invalid payment request id' });
+      }
+
+      const result = await queries.approvePaymentRequest(id, req.authUser.id);
+      if (result.status === 'not_found') {
+        return res.status(404).json({ error: 'payment request not found' });
+      }
+      if (result.status === 'not_pending') {
+        return res.status(409).json({
+          error: `payment request is already ${result.request.status}`,
+          request: result.request,
+        });
+      }
+      return res.json({ request: result.request, balance: result.balance });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// POST /admin/payments/:id/reject  — reject without crediting (manager|admin)
+//   body { admin_note? }
+// ---------------------------------------------------------------------------
+router.post(
+  '/payments/:id/reject',
+  requireUser,
+  requireManagerOrAdmin,
+  async (req, res, next) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) {
+        return res.status(400).json({ error: 'invalid payment request id' });
+      }
+
+      const { admin_note } = req.body || {};
+      const note =
+        typeof admin_note === 'string' && admin_note.trim()
+          ? admin_note.trim()
+          : null;
+
+      const result = await queries.rejectPaymentRequest(id, req.authUser.id, note);
+      if (result.status === 'not_found') {
+        return res.status(404).json({ error: 'payment request not found' });
+      }
+      if (result.status === 'not_pending') {
+        return res.status(409).json({
+          error: `payment request is already ${result.request.status}`,
+          request: result.request,
+        });
+      }
+      return res.json({ request: result.request });
     } catch (err) {
       return next(err);
     }

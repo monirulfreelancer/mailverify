@@ -22,6 +22,38 @@ function parseList(raw) {
     .filter((s) => s.length > 0);
 }
 
+// Default manual-payment bank details (overridable via PAY_BANK_DETAILS env).
+const DEFAULT_BANK_DETAILS = {
+  bank_name: 'First Century Bank',
+  address: '1731 N Elm St, Commerce, GA 30529, USA',
+  swift: 'FCNSUS32',
+  routing: '061120084',
+  account_number: '4015474546031',
+  account_type: 'CHECKING',
+  beneficiary: 'Monirul Islam',
+};
+
+/**
+ * Bank details may be supplied as JSON (parsed into an object) or as a plain
+ * multiline string (returned as-is). Falls back to the built-in default object.
+ * @param {string|undefined} raw
+ * @returns {object|string}
+ */
+function parseBankDetails(raw) {
+  if (!raw || !raw.trim()) return DEFAULT_BANK_DETAILS;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    // Not JSON — treat it as a human-readable multiline string.
+    return raw;
+  }
+}
+
+const DEFAULT_PAY_NOTE =
+  'Send the exact amount to the number/account shown above, then submit this ' +
+  'request with your sender number and transaction ID. An admin will verify ' +
+  'and credit your account, usually within a few hours.';
+
 const config = {
   // HTTP port for the Express server.
   port: parseInt(process.env.PORT || '3000', 10),
@@ -63,6 +95,16 @@ const config = {
     // Minimum gap between two probes to the SAME domain (politeness throttle),
     // so we never hammer one mail server.
     perDomainDelayMs: parseInt(process.env.BULK_PER_DOMAIN_DELAY_MS || '2000', 10),
+  },
+
+  // Manual payment / top-up instructions shown to customers. Read from env so
+  // they can be changed without code edits. No external gateway is involved —
+  // customers send money manually and an admin verifies + approves.
+  payments: {
+    bkashNumber: process.env.PAY_BKASH_NUMBER || '+8801710363553',
+    rocketNumber: process.env.PAY_ROCKET_NUMBER || '+8801710363553',
+    bankDetails: parseBankDetails(process.env.PAY_BANK_DETAILS),
+    note: process.env.PAY_NOTE || DEFAULT_PAY_NOTE,
   },
 };
 
