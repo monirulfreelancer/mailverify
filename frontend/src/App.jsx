@@ -5,6 +5,7 @@ import Spinner from './components/Spinner';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import Landing from './pages/Landing';
 import Verify from './pages/Verify';
 import History from './pages/History';
 import ApiKeys from './pages/ApiKeys';
@@ -34,6 +35,22 @@ function Protected({ children }) {
     <>
       <Navbar />
       <main className="page">{children}</main>
+    </>
+  );
+}
+
+// Home ("/"): marketing Landing page for logged-out visitors, Dashboard for
+// authenticated users. Replaces the old behavior of redirecting "/" to /login.
+function Home() {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <FullPageLoader />;
+  if (!isAuthenticated) return <Landing />;
+  return (
+    <>
+      <Navbar />
+      <main className="page">
+        <Dashboard />
+      </main>
     </>
   );
 }
@@ -70,14 +87,7 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/"
-        element={
-          <Protected>
-            <Dashboard />
-          </Protected>
-        }
-      />
+      <Route path="/" element={<Home />} />
       <Route
         path="/verify"
         element={
