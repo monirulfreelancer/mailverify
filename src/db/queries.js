@@ -1077,7 +1077,7 @@ async function countPendingPaymentRequests(userId) {
  * @param {object} req
  * @param {number} req.userId
  * @param {number|null} req.packageId
- * @param {string} req.method        'bkash' | 'rocket' | 'bank'
+ * @param {string} req.method        'bkash' | 'rocket' | 'nagad' | 'bank'
  * @param {number} req.amount
  * @param {number} req.credits
  * @param {string} req.senderInfo

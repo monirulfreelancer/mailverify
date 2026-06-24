@@ -18,6 +18,7 @@ import Spinner from '../components/Spinner';
 const METHODS = [
   { value: 'bkash', label: 'bKash' },
   { value: 'rocket', label: 'Rocket' },
+  { value: 'nagad', label: 'Nagad' },
   { value: 'bank', label: 'Bank transfer' },
 ];
 
@@ -108,6 +109,7 @@ function methodNumber(v) {
 function senderLabel(method) {
   if (method === 'bank') return 'Bank reference / sender name';
   if (method === 'rocket') return 'Your Rocket number';
+  if (method === 'nagad') return 'Your Nagad number';
   if (method === 'bkash') return 'Your bKash number';
   return 'Your account / sender info';
 }
@@ -376,7 +378,8 @@ export default function BuyCredits() {
       BANK_FIELDS.some((f) => firstField(methods.bank, f.keys)));
   const bkashNumber = methodNumber(methods?.bkash);
   const rocketNumber = methodNumber(methods?.rocket);
-  const hasAnyMethod = !!bkashNumber || !!rocketNumber || !!bankHasContent;
+  const nagadNumber = methodNumber(methods?.nagad);
+  const hasAnyMethod = !!bkashNumber || !!rocketNumber || !!nagadNumber || !!bankHasContent;
 
   return (
     <>
@@ -439,6 +442,9 @@ export default function BuyCredits() {
             )}
             {rocketNumber && (
               <CopyCard label="Rocket (Send Money)" value={rocketNumber} />
+            )}
+            {nagadNumber && (
+              <CopyCard label="Nagad (Send Money)" value={nagadNumber} />
             )}
             {methods?.bank != null && <BankDetails bank={methods.bank} />}
           </div>

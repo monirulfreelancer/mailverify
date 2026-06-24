@@ -23,7 +23,7 @@ const { requireUser } = require('../auth/middleware');
 const router = express.Router();
 
 // Allowed manual payment methods.
-const PAYMENT_METHODS = ['bkash', 'rocket', 'bank'];
+const PAYMENT_METHODS = ['bkash', 'rocket', 'nagad', 'bank'];
 
 // Light rate-limit: a user may not stack more than this many pending requests.
 const MAX_PENDING_REQUESTS = 5;
@@ -49,11 +49,12 @@ router.get('/packages', requireUser, async (req, res, next) => {
 // GET /payments/methods  — manual payment instructions (from config/env)
 // ---------------------------------------------------------------------------
 router.get('/methods', requireUser, (req, res) => {
-  const { bkashNumber, rocketNumber, bankDetails, note } = config.payments;
+  const { bkashNumber, rocketNumber, nagadNumber, bankDetails, note } = config.payments;
   return res.json({
     methods: PAYMENT_METHODS,
     bkash: { number: bkashNumber },
     rocket: { number: rocketNumber },
+    nagad: { number: nagadNumber },
     bank: bankDetails,
     note,
   });

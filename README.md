@@ -166,7 +166,7 @@ configured database they return `503`.
 | --------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `GET  /api/v1/payments/packages`  | —                                                                             | List active credit packages (`id, name, credits, price_amount, currency`).  |
 | `GET  /api/v1/payments/methods`   | —                                                                             | Manual payment instructions (bKash/Rocket numbers, bank details, note) from env. |
-| `POST /api/v1/payments/requests`  | `{ package_id?, method, amount, credits, sender_info, transaction_id, note? }` | Submit a top-up request. `method` ∈ `bkash`\|`rocket`\|`bank`. If `package_id` is given, the package's `credits`/`amount` are the source of truth (client numbers ignored). Capped at 5 pending requests per user (`429`). |
+| `POST /api/v1/payments/requests`  | `{ package_id?, method, amount, credits, sender_info, transaction_id, note? }` | Submit a top-up request. `method` ∈ `bkash`\|`rocket`\|`nagad`\|`bank`. If `package_id` is given, the package's `credits`/`amount` are the source of truth (client numbers ignored). Capped at 5 pending requests per user (`429`). |
 | `GET  /api/v1/payments/requests`  | —                                                                             | The user's own requests, most recent first (status, amount, credits, etc.). |
 
 ### Admin endpoints
@@ -189,6 +189,7 @@ out of the box):
 | ------------------- | ------------------------------------------------------------ |
 | `PAY_BKASH_NUMBER`  | `+8801710363553`                                             |
 | `PAY_ROCKET_NUMBER` | `+8801710363553`                                             |
+| `PAY_NAGAD_NUMBER`  | `+8801710363553`                                             |
 | `PAY_BANK_DETAILS`  | JSON or multiline string; defaults to First Century Bank (SWIFT `FCNSUS32`, Routing `061120084`, Account `4015474546031`, CHECKING, Beneficiary "Monirul Islam"). If valid JSON it is returned as an object; otherwise as a string. |
 | `PAY_NOTE`          | Instruction text shown to customers.                         |
 
@@ -226,6 +227,7 @@ below. The server binds `0.0.0.0:$PORT`, so Coolify's proxy can reach it.
 | `SMTP_TIMEOUT_MS`   | no       | Per-connection SMTP timeout, default `10000`.                         |
 | `PAY_BKASH_NUMBER`  | no       | bKash number shown for manual top-ups (default `+8801710363553`).     |
 | `PAY_ROCKET_NUMBER` | no       | Rocket number shown for manual top-ups (default `+8801710363553`).    |
+| `PAY_NAGAD_NUMBER`  | no       | Nagad number shown for manual top-ups (default `+8801710363553`).     |
 | `PAY_BANK_DETAILS`  | no       | Bank details (JSON or multiline string) for manual top-ups; sensible default. |
 | `PAY_NOTE`          | no       | Instruction text shown with the payment methods.                      |
 

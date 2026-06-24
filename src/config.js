@@ -103,6 +103,7 @@ const config = {
   payments: {
     bkashNumber: process.env.PAY_BKASH_NUMBER || '+8801710363553',
     rocketNumber: process.env.PAY_ROCKET_NUMBER || '+8801710363553',
+    nagadNumber: process.env.PAY_NAGAD_NUMBER || '+8801710363553',
     bankDetails: parseBankDetails(process.env.PAY_BANK_DETAILS),
     note: process.env.PAY_NOTE || DEFAULT_PAY_NOTE,
   },
