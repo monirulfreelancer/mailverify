@@ -7,6 +7,7 @@ import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import Landing from './pages/Landing';
 import Verify from './pages/Verify';
+import Bulk from './pages/Bulk';
 import History from './pages/History';
 import ApiKeys from './pages/ApiKeys';
 
@@ -107,6 +108,14 @@ export default function App() {
         element={
           <Protected>
             <Verify />
+          </Protected>
+        }
+      />
+      <Route
+        path="/bulk"
+        element={
+          <Protected>
+            <Bulk />
           </Protected>
         }
       />

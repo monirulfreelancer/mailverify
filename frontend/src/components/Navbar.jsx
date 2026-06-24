@@ -10,6 +10,7 @@ import Logo from './Logo';
 const LINKS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/verify', label: 'Verify' },
+  { to: '/bulk', label: 'Bulk' },
   { to: '/history', label: 'History' },
   { to: '/api-keys', label: 'API Keys' },
 ];

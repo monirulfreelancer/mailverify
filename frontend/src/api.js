@@ -120,6 +120,102 @@ export const api = {
   // --- Verify ---
   verifySingle: (token, email) =>
     request('/verify/single', { method: 'POST', body: { email }, token }),
+
+  // --- Bulk ---
+  bulkUpload: (token, file) => bulkUpload(token, file),
+  listBulkJobs: (token) => request('/bulk/jobs', { token }),
+  getBulkJob: (token, id) => request(`/bulk/jobs/${id}`, { token }),
+  bulkDownload: (token, id, filename) => bulkDownload(token, id, filename),
 };
+
+/**
+ * Upload a CSV/TXT file for bulk verification.
+ *
+ * Sends multipart/form-data with the file under the field name "file".
+ * We deliberately do NOT set Content-Type — the browser adds it along with the
+ * multipart boundary. We still attach the Bearer token and reuse the same
+ * friendly-error handling as `request()`.
+ */
+async function bulkUpload(token, file) {
+  const form = new FormData();
+  form.append('file', file);
+
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let res;
+  try {
+    res = await fetch(`${API_ROOT}/bulk/upload`, {
+      method: 'POST',
+      headers, // no Content-Type — let the browser set the boundary
+      body: form,
+    });
+  } catch {
+    throw new ApiError(
+      'Cannot reach the server. Check your connection and try again.',
+      0,
+      null
+    );
+  }
+
+  let data = null;
+  const text = await res.text();
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+  }
+
+  if (!res.ok) {
+    const serverMessage = data && (data.error || data.message);
+    throw new ApiError(friendlyMessage(res.status, serverMessage), res.status, data);
+  }
+
+  return data;
+}
+
+/**
+ * Fetch a completed job's result CSV (with the Bearer header) and trigger a
+ * browser download via an object URL. We fetch-as-blob rather than opening a
+ * link because the endpoint requires the Authorization header.
+ */
+async function bulkDownload(token, id, filename) {
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let res;
+  try {
+    res = await fetch(`${API_ROOT}/bulk/jobs/${id}/download`, { headers });
+  } catch {
+    throw new ApiError(
+      'Cannot reach the server. Check your connection and try again.',
+      0,
+      null
+    );
+  }
+
+  if (!res.ok) {
+    let serverMessage;
+    try {
+      const data = JSON.parse(await res.text());
+      serverMessage = data && (data.error || data.message);
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(friendlyMessage(res.status, serverMessage), res.status, null);
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `bulk-results-${id}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export { API_BASE, API_ROOT };
