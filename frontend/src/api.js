@@ -175,6 +175,23 @@ export const api = {
       body: { admin_note: adminNote },
       token,
     }),
+
+  // --- Contact (public submit) ---
+  contactSubmit: ({ name, email, subject, message }) =>
+    request('/contact', { method: 'POST', body: { name, email, subject, message } }),
+
+  // --- Contact (admin/manager) ---
+  adminListContact: (token, { status = '', limit = 50, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (status) params.set('status', status);
+    return request(`/admin/contact?${params.toString()}`, { token });
+  },
+  adminSetContactStatus: (token, id, status) =>
+    request(`/admin/contact/${id}`, {
+      method: 'PATCH',
+      body: { status },
+      token,
+    }),
 };
 
 /**

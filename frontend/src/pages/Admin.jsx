@@ -530,6 +530,243 @@ function PaymentsSection({ token }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Contact messages                                                            */
+/* -------------------------------------------------------------------------- */
+
+const CONTACT_PAGE_SIZE = 50;
+
+const CONTACT_STATUS = {
+  new: 'contact-new',
+  read: 'contact-read',
+  archived: 'contact-archived',
+};
+
+function ContactBadge({ status }) {
+  const key = asText(status);
+  const cls = CONTACT_STATUS[key] || 'unknown';
+  const label = key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Unknown';
+  return <span className={`badge ${cls}`}>{label}</span>;
+}
+
+function ContactRow({ row, token, onPatch }) {
+  const [working, setWorking] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [msg, setMsg] = useState(null); // { type, text }
+  const msgTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(msgTimer.current), []);
+
+  function flash(type, text) {
+    setMsg({ type, text });
+    clearTimeout(msgTimer.current);
+    msgTimer.current = setTimeout(() => setMsg(null), 4000);
+  }
+
+  async function setStatus(status) {
+    if (working || row.status === status) return;
+    setWorking(true);
+    try {
+      await api.adminSetContactStatus(token, row.id, status);
+      onPatch(row.id, { status });
+      flash('ok', `Marked ${status}`);
+    } catch (err) {
+      flash('err', mutationError(err));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const body = asText(row.message);
+  const isLong = body.length > 140;
+  const shownBody = expanded || !isLong ? body : `${body.slice(0, 140)}…`;
+  const mailto = `mailto:${asText(row.email)}${
+    row.subject ? `?subject=${encodeURIComponent(`Re: ${asText(row.subject)}`)}` : ''
+  }`;
+
+  return (
+    <tr className={row.status === 'new' ? 'contact-row-new' : undefined}>
+      <td className="cell-email">{asText(row.name) || '—'}</td>
+      <td className="cell-muted">
+        <a href={mailto}>{asText(row.email) || '—'}</a>
+      </td>
+      <td>{asText(row.subject) || <span className="text-muted">—</span>}</td>
+      <td className="cell-message">
+        <button
+          type="button"
+          className="contact-message-text"
+          onClick={() => isLong && setExpanded((v) => !v)}
+          title={isLong ? (expanded ? 'Click to collapse' : 'Click to expand') : undefined}
+        >
+          {shownBody || '—'}
+        </button>
+      </td>
+      <td><ContactBadge status={row.status} /></td>
+      <td className="cell-muted">{formatDateTime(row.created_at)}</td>
+      <td className="pay-actions">
+        <div className="pay-btns">
+          {row.status !== 'read' && row.status !== 'archived' && (
+            <button
+              className="btn btn-secondary btn-xs"
+              onClick={() => setStatus('read')}
+              disabled={working}
+            >
+              {working ? <Spinner size={12} /> : 'Mark read'}
+            </button>
+          )}
+          {row.status !== 'archived' && (
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={() => setStatus('archived')}
+              disabled={working}
+            >
+              Archive
+            </button>
+          )}
+          <a className="btn btn-ghost btn-xs" href={mailto}>
+            Reply
+          </a>
+        </div>
+        {msg && (
+          <div className={`row-msg ${msg.type === 'ok' ? 'ok' : 'err'}`} style={{ marginTop: 6 }}>
+            {msg.text}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function ContactSection({ token }) {
+  const [filter, setFilter] = useState('new'); // 'new' | 'all' | 'archived'
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [newCount, setNewCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await api.adminListContact(token, {
+        status: filter === 'all' ? '' : filter,
+        limit: CONTACT_PAGE_SIZE,
+        offset: 0,
+      });
+      setRows(data.messages || []);
+      setTotal(typeof data.total === 'number' ? data.total : (data.messages || []).length);
+      if (typeof data.new_count === 'number') setNewCount(data.new_count);
+    } catch (err) {
+      setError(mutationError(err));
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [token, filter]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handlePatch = useCallback(
+    (id, patch) => {
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+      // Keep the "new" pill roughly in sync without a full reload.
+      if (patch.status && patch.status !== 'new') {
+        setNewCount((c) => Math.max(0, c - (rows.find((r) => r.id === id)?.status === 'new' ? 1 : 0)));
+      }
+    },
+    [rows]
+  );
+
+  return (
+    <div className="mt-24">
+      <div className="row-between" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div className="card-title" style={{ marginBottom: 0 }}>
+          Contact messages
+          {newCount > 0 && (
+            <span className="admin-pill" style={{ marginLeft: 8 }}>{newCount} new</span>
+          )}
+        </div>
+        <div className="seg">
+          <button
+            type="button"
+            className={`seg-btn${filter === 'new' ? ' on' : ''}`}
+            onClick={() => setFilter('new')}
+          >
+            New
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${filter === 'all' ? ' on' : ''}`}
+            onClick={() => setFilter('all')}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${filter === 'archived' ? ' on' : ''}`}
+            onClick={() => setFilter('archived')}
+          >
+            Archived
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {loading ? (
+        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+          <Spinner size={24} />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="card">
+          <div className="empty">
+            <div className="empty-icon">✉️</div>
+            <h3>No messages</h3>
+            <p>
+              {filter === 'new'
+                ? 'No new messages right now.'
+                : filter === 'archived'
+                  ? 'No archived messages.'
+                  : 'No contact messages yet.'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="data admin-table payments-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Subject</th>
+                  <th>Message</th>
+                  <th>Status</th>
+                  <th>Received</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <ContactRow key={row.id} row={row} token={token} onPatch={handlePatch} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pagination">
+            <span className="range">
+              Showing {rows.length} of {formatNum(total)}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -704,6 +941,8 @@ export default function Admin() {
       </div>
 
       <PaymentsSection token={token} />
+
+      <ContactSection token={token} />
     </>
   );
 }
