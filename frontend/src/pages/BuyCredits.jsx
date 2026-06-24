@@ -77,12 +77,12 @@ function asText(v) {
  * the fields we know how to label, each with a few tolerated key spellings.
  */
 const BANK_FIELDS = [
-  { label: 'Bank name', keys: ['bankName', 'bank_name', 'name'] },
-  { label: 'Address', keys: ['bankAddress', 'bank_address', 'address'] },
+  { label: 'Bank name', keys: ['bank_name', 'bankName', 'name'] },
+  { label: 'Address', keys: ['address', 'bankAddress', 'bank_address'] },
   { label: 'SWIFT', keys: ['swift', 'swiftCode', 'swift_code', 'bic'] },
-  { label: 'Routing / ABA', keys: ['routing', 'routingNumber', 'routing_number', 'aba'] },
-  { label: 'Account number', keys: ['account', 'accountNumber', 'account_number', 'acct'] },
-  { label: 'Account type', keys: ['accountType', 'account_type', 'type'] },
+  { label: 'Routing (ABA)', keys: ['routing', 'routingNumber', 'routing_number', 'aba'] },
+  { label: 'Account number', keys: ['account_number', 'accountNumber', 'account', 'acct'] },
+  { label: 'Account type', keys: ['account_type', 'accountType', 'type'] },
   { label: 'Beneficiary', keys: ['beneficiary', 'beneficiaryName', 'beneficiary_name', 'holder'] },
 ];
 
@@ -91,6 +91,16 @@ function firstField(obj, keys) {
     const val = asText(obj?.[k]);
     if (val) return val;
   }
+  return '';
+}
+
+/**
+ * A method's number may arrive as a plain string ("+880…") OR nested in an
+ * object ({ number: "+880…" }). Pull out a renderable phone number from either.
+ */
+function methodNumber(v) {
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object') return firstField(v, ['number', 'msisdn', 'phone', 'account']);
   return '';
 }
 
@@ -146,6 +156,10 @@ function CopyCard({ label, value, hint }) {
  * renders nothing instead of crashing.
  */
 function BankDetails({ bank }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
   const asString = asText(bank);
   if (asString) {
     return <CopyCard label="Bank transfer" value={asString} />;
@@ -158,6 +172,22 @@ function BankDetails({ bank }) {
 
     if (lines.length === 0) return null;
 
+    const accountNumber = firstField(bank, ['account_number', 'accountNumber', 'account', 'acct']);
+    // Copy the account number primarily; fall back to the full labeled block.
+    const copyText = accountNumber || lines.map((l) => `${l.label}: ${l.value}`).join('\n');
+
+    async function copy() {
+      if (!copyText) return;
+      try {
+        await navigator.clipboard.writeText(String(copyText));
+      } catch {
+        /* clipboard unavailable — ignore */
+      }
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1800);
+    }
+
     return (
       <div className="pay-method pay-method-bank">
         <div className="pay-method-info">
@@ -169,6 +199,11 @@ function BankDetails({ bank }) {
             </div>
           ))}
         </div>
+        {copyText && (
+          <button type="button" className="btn btn-secondary btn-xs" onClick={copy}>
+            {copied ? '✓ Copied' : accountNumber ? 'Copy account #' : 'Copy'}
+          </button>
+        )}
       </div>
     );
   }
@@ -220,9 +255,14 @@ export default function BuyCredits() {
         if (cancelled) return;
         const pkgList = Array.isArray(pkgs) ? pkgs : pkgs?.packages || [];
         setPackages(Array.isArray(pkgList) ? pkgList : []);
-        // Tolerate a `{ methods: {...} }` wrapper as well as a flat object.
+        // The real payload is flat: { methods: ["bkash",…], bkash: {...}, … }.
+        // `methods` there is an ARRAY of names, NOT the details object — only
+        // unwrap it when it's a plain object wrapper, never when it's an array.
         const m =
-          mtds && typeof mtds.methods === 'object' && mtds.methods !== null
+          mtds &&
+          typeof mtds.methods === 'object' &&
+          mtds.methods !== null &&
+          !Array.isArray(mtds.methods)
             ? mtds.methods
             : mtds;
         setMethods(m && typeof m === 'object' ? m : null);
@@ -334,8 +374,9 @@ export default function BuyCredits() {
     (methods?.bank &&
       typeof methods.bank === 'object' &&
       BANK_FIELDS.some((f) => firstField(methods.bank, f.keys)));
-  const hasAnyMethod =
-    !!asText(methods?.bkash) || !!asText(methods?.rocket) || !!bankHasContent;
+  const bkashNumber = methodNumber(methods?.bkash);
+  const rocketNumber = methodNumber(methods?.rocket);
+  const hasAnyMethod = !!bkashNumber || !!rocketNumber || !!bankHasContent;
 
   return (
     <>
@@ -393,11 +434,11 @@ export default function BuyCredits() {
           </div>
 
           <div className="pay-methods-grid mt-16">
-            {asText(methods?.bkash) && (
-              <CopyCard label="bKash (Send Money)" value={asText(methods.bkash)} />
+            {bkashNumber && (
+              <CopyCard label="bKash (Send Money)" value={bkashNumber} />
             )}
-            {asText(methods?.rocket) && (
-              <CopyCard label="Rocket (Send Money)" value={asText(methods.rocket)} />
+            {rocketNumber && (
+              <CopyCard label="Rocket (Send Money)" value={rocketNumber} />
             )}
             {methods?.bank != null && <BankDetails bank={methods.bank} />}
           </div>
