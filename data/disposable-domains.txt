@@ -1,0 +1,33 @@
+# Disposable / temporary email domains.
+# One domain per line, lowercase. Lines starting with '#' and blank lines are ignored.
+# Keep this list easy to update — just append new domains.
+mailinator.com
+guerrillamail.com
+guerrillamailblock.com
+10minutemail.com
+tempmail.com
+temp-mail.org
+throwawaymail.com
+yopmail.com
+getnada.com
+trashmail.com
+maildrop.cc
+mailnesia.com
+fakeinbox.com
+dispostable.com
+mintemail.com
+sharklasers.com
+spam4.me
+mailcatch.com
+mohmal.com
+emailondeck.com
+moakt.com
+tempinbox.com
+33mail.com
+mytemp.email
+discard.email
+inboxbear.com
+tempr.email
+mailtemp.net
+burnermail.io
+spamgourmet.com

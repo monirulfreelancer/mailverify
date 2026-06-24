@@ -1,0 +1,22 @@
+{
+  "name": "mailverify",
+  "version": "0.1.0",
+  "description": "Email verification engine (offline-testable core). Chunk 1 of a larger verification SaaS.",
+  "main": "src/engine/index.js",
+  "scripts": {
+    "test": "node test/verify.test.js",
+    "verify": "node cli.js"
+  },
+  "keywords": [
+    "email",
+    "verification",
+    "validation",
+    "mx",
+    "disposable"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

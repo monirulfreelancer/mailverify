@@ -1,0 +1,47 @@
+# Role-based local parts (the part before the '@').
+# These typically belong to a function/team rather than a person.
+# One prefix per line, lowercase. '#' comments and blank lines are ignored.
+info
+admin
+administrator
+support
+sales
+contact
+noreply
+no-reply
+donotreply
+billing
+help
+helpdesk
+office
+team
+marketing
+hr
+jobs
+careers
+press
+media
+abuse
+postmaster
+webmaster
+hostmaster
+security
+sysadmin
+root
+accounts
+accounting
+finance
+legal
+compliance
+privacy
+service
+services
+enquiry
+enquiries
+inquiry
+feedback
+newsletter
+notifications
+alerts
+mail
+mailer
