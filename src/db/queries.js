@@ -1274,9 +1274,107 @@ async function rejectPaymentRequest(requestId, adminId, adminNote = null) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Contact messages  (public "Contact us" form)
+// ---------------------------------------------------------------------------
+
+const VALID_CONTACT_STATUSES = ['new', 'read', 'archived'];
+
+/**
+ * Insert a contact-form submission. All values are stored verbatim as plain
+ * text (parameterized — no HTML rendering happens server-side). Returns the new
+ * row's id only; callers must NOT echo stored data back to the public.
+ *
+ * @param {{ name: string, email: string, subject: string|null, message: string, ip: string|null }} m
+ * @returns {Promise<number>} new message id
+ */
+async function insertContactMessage({ name, email, subject = null, message, ip = null }) {
+  const sql = `
+    INSERT INTO contact_messages (name, email, subject, message, ip)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id
+  `;
+  const { rows } = await query(sql, [name, email, subject, message, ip]);
+  return rows[0].id;
+}
+
+/**
+ * List contact messages for the admin dashboard, newest first, with an optional
+ * status filter. Also returns the total (matching the filter) and the global
+ * count of 'new' messages for an "unread" badge.
+ *
+ * @param {{ status?: string|null, limit: number, offset: number }} opts
+ * @returns {Promise<{ messages: object[], total: number, new_count: number }>}
+ */
+async function listContactMessages({ status = null, limit, offset }) {
+  const statusFilter = status || null;
+
+  const listSql = `
+    SELECT id, name, email, subject, message, status, ip, created_at
+      FROM contact_messages
+     WHERE ($1::text IS NULL OR status = $1)
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3
+  `;
+  const countSql = `
+    SELECT COUNT(*)::int AS total
+      FROM contact_messages
+     WHERE ($1::text IS NULL OR status = $1)
+  `;
+  const newCountSql = `
+    SELECT COUNT(*)::int AS new_count
+      FROM contact_messages
+     WHERE status = 'new'
+  `;
+
+  const [list, count, newCount] = await Promise.all([
+    query(listSql, [statusFilter, limit, offset]),
+    query(countSql, [statusFilter]),
+    query(newCountSql),
+  ]);
+
+  return {
+    messages: list.rows,
+    total: count.rows[0].total,
+    new_count: newCount.rows[0].new_count,
+  };
+}
+
+/**
+ * Update a contact message's status. Returns the updated row, or null if no
+ * message with that id exists.
+ *
+ * @param {number} id
+ * @param {string} status  one of VALID_CONTACT_STATUSES
+ * @returns {Promise<object|null>}
+ */
+async function updateContactStatus(id, status) {
+  const sql = `
+    UPDATE contact_messages
+       SET status = $2
+     WHERE id = $1
+     RETURNING id, name, email, subject, message, status, ip, created_at
+  `;
+  const { rows } = await query(sql, [id, status]);
+  return rows[0] || null;
+}
+
+/**
+ * Delete a contact message. Returns true if a row was removed, false if the id
+ * did not exist.
+ *
+ * @param {number} id
+ * @returns {Promise<boolean>}
+ */
+async function deleteContactMessage(id) {
+  const { rowCount } = await query('DELETE FROM contact_messages WHERE id = $1', [id]);
+  return rowCount > 0;
+}
+
 module.exports = {
   DOMAIN_CACHE_TTL_MS,
   SIGNUP_FREE_CREDITS,
+  VALID_CONTACT_STATUSES,
   getUserByApiKeyHash,
   touchApiKeyLastUsed,
   getCreditBalance,
@@ -1327,4 +1425,9 @@ module.exports = {
   listPaymentRequestsAdmin,
   approvePaymentRequest,
   rejectPaymentRequest,
+  // Contact messages
+  insertContactMessage,
+  listContactMessages,
+  updateContactStatus,
+  deleteContactMessage,
 };

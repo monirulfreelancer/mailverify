@@ -11,6 +11,7 @@
     "migrate:bulk": "node src/db/migrate-bulk.js",
     "migrate:admin": "node src/db/migrate-admin.js",
     "migrate:payments": "node src/db/migrate-payments.js",
+    "migrate:contact": "node src/db/migrate-contact.js",
     "seed": "node src/db/seed.js"
   },
   "keywords": [

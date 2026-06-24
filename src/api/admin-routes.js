@@ -42,6 +42,10 @@ const PAYMENTS_DEFAULT_LIMIT = 50;
 const PAYMENTS_MAX_LIMIT = 200;
 const VALID_PAYMENT_STATUSES = ['pending', 'approved', 'rejected'];
 
+const CONTACT_DEFAULT_LIMIT = 50;
+const CONTACT_MAX_LIMIT = 200;
+const VALID_CONTACT_STATUSES = ['new', 'read', 'archived'];
+
 /** Parse a positive integer route param, or null if it isn't one. */
 function parseId(raw) {
   const id = parseInt(raw, 10);
@@ -368,6 +372,102 @@ router.post(
         });
       }
       return res.json({ request: result.request });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// GET /admin/contact  — list contact-form messages (manager|admin)
+//   ?status=new|read|archived  ?limit  ?offset
+// ---------------------------------------------------------------------------
+router.get(
+  '/contact',
+  requireUser,
+  requireManagerOrAdmin,
+  async (req, res, next) => {
+    try {
+      let limit = parseInt(req.query.limit, 10);
+      let offset = parseInt(req.query.offset, 10);
+      if (!Number.isFinite(limit) || limit <= 0) limit = CONTACT_DEFAULT_LIMIT;
+      if (limit > CONTACT_MAX_LIMIT) limit = CONTACT_MAX_LIMIT;
+      if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+      let status = null;
+      if (typeof req.query.status === 'string' && req.query.status.trim()) {
+        status = req.query.status.trim();
+        if (!VALID_CONTACT_STATUSES.includes(status)) {
+          return res.status(400).json({
+            error: `"status" must be one of: ${VALID_CONTACT_STATUSES.join(', ')}`,
+          });
+        }
+      }
+
+      const { messages, total, new_count } = await queries.listContactMessages({
+        status,
+        limit,
+        offset,
+      });
+      return res.json({ messages, total, new_count, limit, offset });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/contact/:id  — update a message's status (manager|admin)
+//   body { status: 'new' | 'read' | 'archived' }
+// ---------------------------------------------------------------------------
+router.patch(
+  '/contact/:id',
+  requireUser,
+  requireManagerOrAdmin,
+  async (req, res, next) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) {
+        return res.status(400).json({ error: 'invalid message id' });
+      }
+
+      const { status } = req.body || {};
+      if (!VALID_CONTACT_STATUSES.includes(status)) {
+        return res.status(400).json({
+          error: `"status" must be one of: ${VALID_CONTACT_STATUSES.join(', ')}`,
+        });
+      }
+
+      const updated = await queries.updateContactStatus(id, status);
+      if (!updated) {
+        return res.status(404).json({ error: 'message not found' });
+      }
+      return res.json({ message: updated });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /admin/contact/:id  — remove a message (admin only)
+// ---------------------------------------------------------------------------
+router.delete(
+  '/contact/:id',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id === null) {
+        return res.status(400).json({ error: 'invalid message id' });
+      }
+
+      const deleted = await queries.deleteContactMessage(id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'message not found' });
+      }
+      return res.json({ ok: true, id });
     } catch (err) {
       return next(err);
     }

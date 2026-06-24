@@ -192,3 +192,20 @@ CREATE TABLE IF NOT EXISTS payment_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests (user_id);
+
+-- ---------------------------------------------------------------------------
+-- contact_messages  (public "Contact us" form submissions)
+-- ---------------------------------------------------------------------------
+-- Anyone (no auth) can POST a message via /api/v1/contact; admins/managers read
+-- and triage them. Stored as plain text only — never rendered as HTML server-side.
+CREATE TABLE IF NOT EXISTS contact_messages (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  subject    TEXT,
+  message    TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'new',   -- 'new' | 'read' | 'archived'
+  ip         TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages (status, created_at DESC);

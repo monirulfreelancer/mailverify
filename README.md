@@ -21,6 +21,7 @@ Useful scripts:
 | `npm run migrate` | Apply `src/db/schema.sql` to `DATABASE_URL`.            |
 | `npm run migrate:admin` | Promote the bootstrap accounts to the `admin` role. |
 | `npm run migrate:payments` | Create the payment tables + seed default credit packages. |
+| `npm run migrate:contact` | Create the `contact_messages` table (public contact form). |
 | `npm run seed`    | Create the admin user + one API key (prints raw key).   |
 
 Without `DATABASE_URL` the app still runs (no persistence, no credits, auth falls
@@ -202,6 +203,57 @@ curl -X POST http://localhost:3000/api/v1/payments/requests \
 # Admin: approve it (credits the user)
 curl -X POST http://localhost:3000/api/v1/admin/payments/7/approve \
   -H "Authorization: Bearer $ADMIN_JWT"
+```
+
+## Contact
+
+A public **Contact us** form that stores messages in PostgreSQL for admins/managers
+to triage. Submissions need no authentication; reading and acting on them does.
+
+Backed by one table, **`contact_messages`** (`id, name, email, subject, message,
+status, ip, created_at`), where `status` ∈ `new`\|`read`\|`archived` (default
+`new`). It is part of `schema.sql`; on an existing database add just it with:
+
+```bash
+npm run migrate:contact
+```
+
+Messages are stored as **plain text** and are never echoed back by the public
+endpoint, so there is no stored-XSS surface — any HTML in a submission is persisted
+verbatim and only ever displayed as text.
+
+### Public endpoint (no auth)
+
+Mounted under **`/api/v1/contact`**. Returns `503` without a configured database.
+
+| Method & path           | Body                                  | What it does                                                                 |
+| ----------------------- | ------------------------------------- | --------------------------------------------------------------------------- |
+| `POST /api/v1/contact`  | `{ name, email, subject?, message }`  | Validate + store a message (`name` ≤ 200, valid `email`, `message` ≤ 5000; inputs trimmed). Lightweight per-IP rate limit (max 5 / 10 min → `429`). Returns `{ ok: true }` only — stored data is never echoed back. |
+
+### Admin endpoints
+
+Mounted under **`/api/v1/admin`**, all require a **Bearer JWT** + a role gate.
+
+| Method & path                       | Role          | Body / query           | What it does                                                                 |
+| ----------------------------------- | ------------- | ---------------------- | --------------------------------------------------------------------------- |
+| `GET    /api/v1/admin/contact`      | manager/admin | `?status&limit&offset` | List messages (newest first; optional status filter). Returns `{ messages, total, new_count }`. |
+| `PATCH  /api/v1/admin/contact/:id`  | manager/admin | `{ status }`           | Update a message's status (`new`\|`read`\|`archived`). Returns the updated message. |
+| `DELETE /api/v1/admin/contact/:id`  | admin         | —                      | Permanently delete a message. Returns `{ ok: true, id }`.                    |
+
+```bash
+# Public: submit a contact message
+curl -X POST http://localhost:3000/api/v1/contact \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Jane","email":"jane@example.com","subject":"Hi","message":"Hello!"}'
+
+# Admin: list new messages
+curl "http://localhost:3000/api/v1/admin/contact?status=new" \
+  -H "Authorization: Bearer $ADMIN_JWT"
+
+# Admin: mark message 3 as read
+curl -X PATCH http://localhost:3000/api/v1/admin/contact/3 \
+  -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+  -d '{"status":"read"}'
 ```
 
 ## Deploying on Coolify
