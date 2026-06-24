@@ -4,16 +4,27 @@ const express = require('express');
 const { verify } = require('../engine');
 const { requireApiKey } = require('./auth');
 const config = require('../config');
+const db = require('../db/pool');
+const queries = require('../db/queries');
 
 /**
  * API route definitions, mounted under /api/v1 by server.js.
  *
  * - /health          : public liveness probe.
- * - /verify/single   : auth'd, verify one address.
+ * - /verify/single   : auth'd, verify one address (+ credits + persistence when DB on).
  * - /verify/batch    : auth'd, verify up to config.batchLimit addresses (sync).
  */
 
 const router = express.Router();
+
+// Domain-cache adapter injected into the engine. Only wired when a database is
+// configured; otherwise null and the engine runs un-cached (degraded mode).
+const domainCache = db.isEnabled()
+  ? {
+      get: (domain) => queries.getDomainCache(domain),
+      set: (domain, data) => queries.setDomainCache(domain, data),
+    }
+  : null;
 
 // --- Health (no auth) ------------------------------------------------------
 router.get('/health', (req, res) => {
@@ -31,7 +42,33 @@ router.post('/verify/single', requireApiKey, async (req, res, next) => {
         .json({ error: 'missing or invalid "email" in request body' });
     }
 
-    const result = await verify(email);
+    // Charge BEFORE verifying (only in DB mode with an authenticated user).
+    // Degraded mode (no DB / no user) skips credits entirely.
+    if (req.user) {
+      const charged = await queries.spendCredits(
+        req.user.id,
+        1,
+        'single verify'
+      );
+      if (!charged) {
+        return res.status(402).json({
+          error: 'insufficient credits',
+        });
+      }
+    }
+
+    const result = await verify(email, { domainCache });
+
+    // Persist the result (best-effort) when we have an authenticated user.
+    if (req.user) {
+      try {
+        await queries.saveResult(null, req.user.id, result);
+      } catch (err) {
+        // Don't fail the response just because persistence hiccuped.
+        console.error('[verify/single] saveResult failed:', err.message);
+      }
+    }
+
     return res.json(result);
   } catch (err) {
     // Hand off to the centralized error handler (never crash).
@@ -43,6 +80,8 @@ router.post('/verify/single', requireApiKey, async (req, res, next) => {
 // TODO(queue): Real bulk verification will move to a background queue/worker in
 // a later chunk (jobs + polling/webhooks). This synchronous endpoint is only
 // for testing and is intentionally capped at config.batchLimit addresses.
+// TODO(billing): batch credit-charging + per-row persistence will be handled by
+// the job/worker flow in Chunk 4B; this sync path stays lightweight for now.
 router.post('/verify/batch', requireApiKey, async (req, res, next) => {
   try {
     const { emails } = req.body || {};
@@ -65,8 +104,11 @@ router.post('/verify/batch', requireApiKey, async (req, res, next) => {
 
     // Verify each address. We run them concurrently but bounded by the array
     // size (already capped at batchLimit). Each verify() resolves on its own,
-    // so one bad address never rejects the whole batch.
-    const results = await Promise.all(emails.map((email) => verify(email)));
+    // so one bad address never rejects the whole batch. The domain cache is
+    // shared across the batch, so repeated domains are cheap.
+    const results = await Promise.all(
+      emails.map((email) => verify(email, { domainCache }))
+    );
 
     // Build the summary counts.
     const summary = {

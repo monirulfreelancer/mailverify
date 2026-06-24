@@ -33,6 +33,31 @@ const FREE_PROVIDERS = new Set([
 ]);
 
 /**
+ * Best-effort domain-cache read. Never throws — a cache failure must never
+ * break verification. Returns null on miss/error.
+ */
+async function cacheGet(domainCache, domain) {
+  if (!domainCache || typeof domainCache.get !== 'function') return null;
+  try {
+    return await domainCache.get(domain);
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Best-effort domain-cache write. Never throws.
+ */
+async function cacheSet(domainCache, domain, data) {
+  if (!domainCache || typeof domainCache.set !== 'function') return;
+  try {
+    await domainCache.set(domain, data);
+  } catch (err) {
+    /* ignore — cache is an optimization, not a source of truth */
+  }
+}
+
+/**
  * Build the canonical result object so every return path has the same shape.
  * @param {object} overrides
  * @returns {object}
@@ -63,6 +88,11 @@ function makeResult(overrides) {
  * @param {object} [options]
  * @param {boolean} [options.skipSmtp=false] skip the SMTP probe + catch-all step
  *   (offline-safe; preserves Chunk-1 behavior).
+ * @param {{get: function, set: function}} [options.domainCache] optional
+ *   domain-level cache. `get(domain)` returns a cached row (or null); `set(domain,
+ *   data)` upserts it. Used to avoid repeating DNS/catch-all lookups. The engine
+ *   stays storage-agnostic — the caller injects any backing store. Guarded:
+ *   omit it and the engine behaves exactly as before.
  * @returns {Promise<{
  *   email: string,
  *   status: 'valid'|'invalid'|'disposable'|'unknown'|'accept_all',
@@ -78,7 +108,7 @@ function makeResult(overrides) {
  * }>}
  */
 async function verify(email, options = {}) {
-  const { skipSmtp = false } = options;
+  const { skipSmtp = false, domainCache = null } = options;
   const normalized = typeof email === 'string' ? email.trim() : email;
 
   // --- 1. Syntax ---------------------------------------------------------
@@ -114,9 +144,37 @@ async function verify(email, options = {}) {
   // --- 3. Role (flag only, keep going) -----------------------------------
   // (already computed above as isRoleAddress)
 
-  // --- 4. DNS / MX -------------------------------------------------------
-  const mail = await resolveMail(domainLower);
-  if (!mail.mxFound) {
+  // --- 4. DNS / MX (optionally served from the domain cache) -------------
+  // A fresh cache row lets us skip the DNS lookup (and, below, the catch-all
+  // probe). The mailbox-level SMTP probe is per-address and never cached.
+  const cached = await cacheGet(domainCache, domainLower);
+  let mail;
+  let cachedCatchAll = null; // boolean from cache, or null if unknown
+  let mxFromCache = false;
+
+  if (cached && typeof cached.has_mx === 'boolean') {
+    mxFromCache = true;
+    mail = {
+      mxFound: cached.has_mx,
+      records: Array.isArray(cached.mx_records) ? cached.mx_records : [],
+      fallbackA: false,
+    };
+    if (typeof cached.is_catch_all === 'boolean') {
+      cachedCatchAll = cached.is_catch_all;
+    }
+  } else {
+    mail = await resolveMail(domainLower);
+  }
+
+  // Treat "has_mx true but no records" defensively as no deliverable MX.
+  if (!mail.mxFound || mail.records.length === 0) {
+    if (!mxFromCache) {
+      await cacheSet(domainCache, domainLower, {
+        has_mx: false,
+        mx_records: [],
+        is_disposable: false,
+      });
+    }
     return makeResult({
       email: normalized,
       status: 'invalid',
@@ -136,6 +194,15 @@ async function verify(email, options = {}) {
   // --- 5. SMTP probe + catch-all -----------------------------------------
   // Skippable so Chunk-1 offline behavior is preserved for testing.
   if (skipSmtp) {
+    // Persist the MX result we learned (if it came from a live lookup).
+    if (!mxFromCache) {
+      await cacheSet(domainCache, domainLower, {
+        has_mx: true,
+        mx_records: mail.records,
+        is_disposable: false,
+      });
+    }
+
     let score = 80;
     if (isRoleAddress) score -= 10; // role mailboxes are lower-value leads
     if (mail.fallbackA) score -= 5; // A-record fallback is weaker than real MX
@@ -161,13 +228,39 @@ async function verify(email, options = {}) {
   // connections we open here per address. That requires connection pooling /
   // reuse keyed by MX host and per-host rate limiting to avoid tripping
   // greylisting or anti-abuse throttles.
-  const [mailboxResult, catchAllResult] = await Promise.all([
-    smtp.checkMailbox(mxHost, normalized),
-    smtp.checkCatchAll(mxHost, domainLower),
-  ]);
+  let catchAll;
+  let catchAllDefinite = false; // did we get a confident true/false this run?
+  let smtpStatus; // 'valid' | 'invalid' | 'unknown'
 
-  const catchAll = catchAllResult === 'true';
-  const smtpStatus = mailboxResult.smtp; // 'valid' | 'invalid' | 'unknown'
+  if (cachedCatchAll !== null) {
+    // Catch-all status known from cache — only probe the specific mailbox.
+    catchAll = cachedCatchAll;
+    const mailboxResult = await smtp.checkMailbox(mxHost, normalized);
+    smtpStatus = mailboxResult.smtp;
+  } else {
+    // No cached catch-all answer — probe both concurrently.
+    const [mailboxResult, catchAllResult] = await Promise.all([
+      smtp.checkMailbox(mxHost, normalized),
+      smtp.checkCatchAll(mxHost, domainLower),
+    ]);
+    smtpStatus = mailboxResult.smtp;
+    if (catchAllResult === 'true' || catchAllResult === 'false') {
+      catchAll = catchAllResult === 'true';
+      catchAllDefinite = true;
+    } else {
+      catchAll = false; // 'unknown' — don't claim catch-all
+    }
+  }
+
+  // Write back what we learned this run (MX always; catch-all only if definite).
+  if (!mxFromCache || catchAllDefinite) {
+    await cacheSet(domainCache, domainLower, {
+      has_mx: true,
+      mx_records: mail.records,
+      is_catch_all: catchAllDefinite ? catchAll : cachedCatchAll,
+      is_disposable: false,
+    });
+  }
 
   // --- Final status logic ------------------------------------------------
   let status;
