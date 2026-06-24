@@ -6,6 +6,9 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import Landing from './pages/Landing';
+import Features from './pages/Features';
+import Pricing from './pages/Pricing';
+import ComingSoon from './pages/ComingSoon';
 import Verify from './pages/Verify';
 import Bulk from './pages/Bulk';
 import History from './pages/History';
@@ -108,6 +111,20 @@ export default function App() {
       />
 
       <Route path="/" element={<Home />} />
+
+      {/* Public marketing pages — no auth, no sidebar. They render on every host
+          (the marketing site is the intended audience; on the app host they
+          simply remain publicly viewable). */}
+      <Route path="/features" element={<Features />} />
+      <Route path="/pricing" element={<Pricing />} />
+      <Route
+        path="/blog"
+        element={<ComingSoon title="Blog" subtitle="Guides and updates on deliverability are on the way." />}
+      />
+      <Route
+        path="/contact"
+        element={<ComingSoon title="Contact us" subtitle="A contact form is coming soon. In the meantime, reach out from your dashboard." />}
+      />
 
       {/* Authenticated pages share the sidebar shell (AppLayout). */}
       <Route element={<ProtectedLayout />}>

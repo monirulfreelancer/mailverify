@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import Logo from '../components/Logo';
+import MarketingNav from '../components/MarketingNav';
+import MarketingFooter from '../components/MarketingFooter';
 import '../landing.css';
 
 /**
@@ -214,22 +215,8 @@ export default function Landing() {
 
   return (
     <div className="lp">
-      {/* ---------- Sticky nav ---------- */}
-      <header className="lp-nav">
-        <div className="lp-nav-inner">
-          <a href="/" aria-label="mailverify home">
-            <Logo />
-          </a>
-          <nav className="lp-nav-actions">
-            <a href={`${APP_URL}/login`} className="btn btn-ghost">
-              Log in
-            </a>
-            <a href={`${APP_URL}/signup`} className="btn btn-primary">
-              Sign up free
-            </a>
-          </nav>
-        </div>
-      </header>
+      {/* ---------- Sticky nav (shared marketing navbar) ---------- */}
+      <MarketingNav />
 
       {/* ---------- Hero ---------- */}
       <section className="lp-hero">
@@ -446,48 +433,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ---------- Footer ---------- */}
-      <footer className="lp-footer">
-        <div className="lp-container">
-          <div className="lp-footer-grid">
-            <div>
-              <Logo />
-              <p className="lp-footer-tagline">
-                Real-time email verification that keeps your lists clean and your sender
-                reputation strong.
-              </p>
-            </div>
-            <div className="lp-footer-col">
-              <h4>Product</h4>
-              <ul>
-                <li><a href="#features">Features</a></li>
-                <li><a href="#pricing">Pricing</a></li>
-                <li><a href="#how-it-works">How it works</a></li>
-                <li><a href="#faq">FAQ</a></li>
-              </ul>
-            </div>
-            <div className="lp-footer-col">
-              <h4>Company</h4>
-              <ul>
-                <li><a href="#">About</a></li>
-                <li><a href="#">Blog</a></li>
-                <li><a href="#contact">Contact</a></li>
-              </ul>
-            </div>
-            <div className="lp-footer-col">
-              <h4>Legal</h4>
-              <ul>
-                <li><a href="#">Privacy</a></li>
-                <li><a href="#">Terms</a></li>
-                <li><a href="#">Security</a></li>
-              </ul>
-            </div>
-          </div>
-          <div className="lp-footer-bottom">
-            © {new Date().getFullYear()} mailverify. All rights reserved.
-          </div>
-        </div>
-      </footer>
+      {/* ---------- Footer (shared marketing footer) ---------- */}
+      <MarketingFooter />
     </div>
   );
 }

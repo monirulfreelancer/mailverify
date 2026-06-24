@@ -85,6 +85,136 @@
   gap: 10px;
 }
 
+/* Center marketing links (Home / Features / Pricing / Blog / Contact) */
+.lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 auto;
+}
+.lp-nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.lp-nav-link:hover {
+  color: var(--text);
+  background: var(--bg);
+  text-decoration: none;
+}
+.lp-nav-link.active {
+  color: var(--primary-700);
+  background: var(--primary-50);
+}
+
+/* Mobile hamburger toggle — hidden on desktop */
+.lp-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Mobile dropdown panel */
+.lp-nav-mobile {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 24px 18px;
+}
+.lp-nav-mobile nav {
+  display: grid;
+  gap: 2px;
+}
+.lp-nav-mobile-link {
+  display: block;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-decoration: none;
+}
+.lp-nav-mobile-link:hover {
+  background: var(--bg);
+  text-decoration: none;
+}
+.lp-nav-mobile-link.active {
+  color: var(--primary-700);
+  background: var(--primary-50);
+}
+.lp-nav-mobile-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Below 860px: hide the inline center links + desktop CTAs, show hamburger */
+@media (max-width: 860px) {
+  .lp-nav-links,
+  .lp-nav-actions {
+    display: none;
+  }
+  .lp-nav-toggle {
+    display: inline-flex;
+  }
+}
+
+/* ---------- Shared inner-page hero (Features / Pricing / Coming soon) ---------- */
+.lp-page-hero {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 56px;
+}
+.lp-page-hero::before {
+  content: '';
+  position: absolute;
+  top: -200px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  height: 560px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(99, 102, 241, 0.12) 0%,
+    rgba(99, 102, 241, 0) 65%
+  );
+  pointer-events: none;
+}
+.lp-page-hero .lp-section-head {
+  max-width: 720px;
+}
+.lp-page-title {
+  font-size: 46px;
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+.lp-page-title .lp-grad {
+  background: linear-gradient(120deg, var(--primary) 0%, var(--purple) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@media (max-width: 720px) {
+  .lp-page-title {
+    font-size: 33px;
+  }
+}
+
 /* ---------- Hero ---------- */
 .lp-hero {
   position: relative;
@@ -469,6 +599,33 @@
     grid-template-columns: 1fr;
   }
 }
+/* 5-up variant used on the dedicated Pricing page (Free + four packages) */
+.lp-pricing-grid-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+@media (max-width: 1080px) {
+  .lp-pricing-grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .lp-pricing-grid-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .lp-pricing-grid-5 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lp-price-blurb {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .lp-price-card {
   position: relative;
   display: flex;
