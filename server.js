@@ -1,9 +1,12 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const config = require('./src/config');
 const routes = require('./src/api/routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
+const db = require('./src/db/pool');
 
 /**
  * mailverify HTTP API server (Chunk 3).
@@ -61,11 +64,46 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err && err.stack ? err.stack : err);
 });
 
+// --- Optional boot-time migration ------------------------------------------
+// When RUN_MIGRATIONS=true AND a database is configured, apply schema.sql before
+// serving traffic (handy for the first Coolify deploy). A failure here is logged
+// clearly but does NOT throw, so the server still starts rather than crash-looping
+// silently. Set RUN_MIGRATIONS=true once on first deploy, then remove it.
+async function runMigrationsIfRequested() {
+  if (process.env.RUN_MIGRATIONS !== 'true') {
+    return; // not requested — skip quietly
+  }
+  if (!db.isEnabled()) {
+    console.warn(
+      '[migrate] RUN_MIGRATIONS=true but DATABASE_URL is unset — skipping migration.'
+    );
+    return;
+  }
+
+  console.log('[migrate] RUN_MIGRATIONS=true — applying schema.sql on boot ...');
+  try {
+    const schemaPath = path.join(__dirname, 'src', 'db', 'schema.sql');
+    const sql = fs.readFileSync(schemaPath, 'utf8');
+    // schema.sql is fully idempotent (IF NOT EXISTS), so this is safe to re-run.
+    await db.query(sql);
+    console.log('[migrate] schema applied successfully.');
+  } catch (err) {
+    // Log clearly and continue — better a running (possibly degraded) server we
+    // can inspect than an opaque restart loop.
+    console.error('[migrate] FAILED to apply schema on boot:', err.message);
+    console.error('[migrate] continuing startup; run `npm run migrate` manually to retry.');
+  }
+}
+
 // --- Start -----------------------------------------------------------------
-function start() {
+async function start() {
+  await runMigrationsIfRequested();
   warnIfAuthDisabled();
-  const server = app.listen(config.port, () => {
-    console.log(`mailverify API listening on http://localhost:${config.port}`);
+
+  // Bind to 0.0.0.0 so the container is reachable from outside (Coolify proxy).
+  const host = '0.0.0.0';
+  const server = app.listen(config.port, host, () => {
+    console.log(`mailverify API listening on http://${host}:${config.port}`);
     console.log(`  health:  GET  /api/v1/health`);
     console.log(`  single:  POST /api/v1/verify/single`);
     console.log(`  batch:   POST /api/v1/verify/batch`);
@@ -78,7 +116,10 @@ function start() {
 
 // Only auto-start when run directly (allows importing app in tests).
 if (require.main === module) {
-  start();
+  start().catch((err) => {
+    console.error('[startup] fatal error:', err && err.stack ? err.stack : err);
+    process.exit(1);
+  });
 }
 
 module.exports = { app, start };

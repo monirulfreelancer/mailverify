@@ -1,0 +1,26 @@
+# Dependencies — reinstalled inside the image via `npm ci`.
+node_modules
+
+# Version control / CI.
+.git
+.gitignore
+
+# Local environment & secrets (never bake into the image).
+.env
+.env.local
+.env.*.local
+
+# Logs & debug output.
+*.log
+npm-debug.log*
+logs
+
+# Editor / OS cruft.
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Local test cruft / docs not needed at runtime.
+coverage
+.claude
