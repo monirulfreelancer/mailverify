@@ -1155,6 +1155,25 @@ select.admin-select.status { font-weight: 700; }
   margin-top: 2px;
 }
 
+/* Structured bank-transfer details (when /payments/methods returns an object) */
+.pay-method-bank {
+  display: block;
+  align-items: stretch;
+}
+.pay-bank-line {
+  font-size: 13px;
+  color: var(--text);
+  margin-top: 4px;
+  word-break: break-word;
+}
+.pay-bank-key {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+.pay-bank-val {
+  font-weight: 700;
+}
+
 /* Admin payments: inline approve / reject controls */
 .payments-table {
   min-width: 1040px;

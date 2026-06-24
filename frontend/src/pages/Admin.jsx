@@ -29,7 +29,17 @@ function formatDate(value) {
 
 function formatNum(n) {
   if (n === null || n === undefined) return '—';
-  return Number(n).toLocaleString();
+  const num = Number(n);
+  if (Number.isNaN(num)) return '—';
+  return num.toLocaleString();
+}
+
+// Coerce to a safe React child: primitives pass through, objects/arrays -> ''.
+function asText(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return '';
 }
 
 // Friendly message for the common admin failure modes, keeping 403 explicit.
@@ -278,8 +288,9 @@ const PAYMENT_STATUS = {
 };
 
 function PaymentBadge({ status }) {
-  const cls = PAYMENT_STATUS[status] || 'unknown';
-  const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+  const key = asText(status);
+  const cls = PAYMENT_STATUS[key] || 'unknown';
+  const label = key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Unknown';
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
@@ -344,12 +355,12 @@ function PaymentRow({ row, token, onPatch }) {
 
   return (
     <tr>
-      <td className="cell-email">{row.user_email}</td>
-      <td style={{ textTransform: 'capitalize' }}>{row.method}</td>
+      <td className="cell-email">{asText(row.user_email) || '—'}</td>
+      <td style={{ textTransform: 'capitalize' }}>{asText(row.method) || '—'}</td>
       <td className="cell-score">{formatNum(row.amount)}</td>
       <td className="cell-score">{formatNum(row.credits)}</td>
-      <td className="mono">{row.transaction_id || '—'}</td>
-      <td className="cell-muted" title={row.sender_info || ''}>{row.sender_info || '—'}</td>
+      <td className="mono">{asText(row.transaction_id) || '—'}</td>
+      <td className="cell-muted" title={asText(row.sender_info)}>{asText(row.sender_info) || '—'}</td>
       <td><PaymentBadge status={row.status} /></td>
       <td className="cell-muted">{formatDateTime(row.created_at)}</td>
       <td className="pay-actions">
@@ -394,7 +405,7 @@ function PaymentRow({ row, token, onPatch }) {
             </div>
           )
         ) : (
-          row.admin_note ? <span className="cell-muted">{row.admin_note}</span> : <span className="text-muted">—</span>
+          asText(row.admin_note) ? <span className="cell-muted">{asText(row.admin_note)}</span> : <span className="text-muted">—</span>
         )}
         {msg && (
           <div className={`row-msg ${msg.type === 'ok' ? 'ok' : 'err'}`} style={{ marginTop: 6 }}>

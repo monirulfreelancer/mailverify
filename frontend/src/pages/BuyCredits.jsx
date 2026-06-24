@@ -29,7 +29,8 @@ const PAYMENT_STATUS = {
 };
 
 function PaymentBadge({ status }) {
-  const s = PAYMENT_STATUS[status] || { cls: 'unknown', label: status || 'Unknown' };
+  const key = asText(status);
+  const s = PAYMENT_STATUS[key] || { cls: 'unknown', label: key || 'Unknown' };
   return <span className={`badge ${s.cls}`}>{s.label}</span>;
 }
 
@@ -54,7 +55,43 @@ function formatMoney(amount, currency) {
 
 function formatNum(n) {
   if (n === null || n === undefined) return '—';
-  return Number(n).toLocaleString();
+  const num = Number(n);
+  if (Number.isNaN(num)) return '—';
+  return num.toLocaleString();
+}
+
+/**
+ * Coerce a value to something safe to render as a React child.
+ * Strings/numbers/booleans pass through (as strings); objects, arrays, null and
+ * undefined collapse to '' so we NEVER hand React a raw object child.
+ */
+function asText(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return '';
+}
+
+/**
+ * Bank details may arrive as a plain string OR as a structured object. These are
+ * the fields we know how to label, each with a few tolerated key spellings.
+ */
+const BANK_FIELDS = [
+  { label: 'Bank name', keys: ['bankName', 'bank_name', 'name'] },
+  { label: 'Address', keys: ['bankAddress', 'bank_address', 'address'] },
+  { label: 'SWIFT', keys: ['swift', 'swiftCode', 'swift_code', 'bic'] },
+  { label: 'Routing / ABA', keys: ['routing', 'routingNumber', 'routing_number', 'aba'] },
+  { label: 'Account number', keys: ['account', 'accountNumber', 'account_number', 'acct'] },
+  { label: 'Account type', keys: ['accountType', 'account_type', 'type'] },
+  { label: 'Beneficiary', keys: ['beneficiary', 'beneficiaryName', 'beneficiary_name', 'holder'] },
+];
+
+function firstField(obj, keys) {
+  for (const k of keys) {
+    const val = asText(obj?.[k]);
+    if (val) return val;
+  }
+  return '';
 }
 
 // The sender_info field means different things per method.
@@ -103,6 +140,42 @@ function CopyCard({ label, value, hint }) {
   );
 }
 
+/**
+ * Bank transfer instructions. `bank` may be a string (render via CopyCard) or a
+ * structured object (render each known field as a labeled line). Anything else
+ * renders nothing instead of crashing.
+ */
+function BankDetails({ bank }) {
+  const asString = asText(bank);
+  if (asString) {
+    return <CopyCard label="Bank transfer" value={asString} />;
+  }
+
+  if (bank && typeof bank === 'object') {
+    const lines = BANK_FIELDS
+      .map((f) => ({ label: f.label, value: firstField(bank, f.keys) }))
+      .filter((line) => line.value);
+
+    if (lines.length === 0) return null;
+
+    return (
+      <div className="pay-method pay-method-bank">
+        <div className="pay-method-info">
+          <div className="pay-method-label">Bank transfer</div>
+          {lines.map((line) => (
+            <div className="pay-bank-line" key={line.label}>
+              <span className="pay-bank-key">{line.label}:</span>{' '}
+              <span className="pay-bank-val mono">{line.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -145,8 +218,14 @@ export default function BuyCredits() {
           api.paymentsGetMethods(token),
         ]);
         if (cancelled) return;
-        setPackages(Array.isArray(pkgs) ? pkgs : pkgs?.packages || []);
-        setMethods(mtds || null);
+        const pkgList = Array.isArray(pkgs) ? pkgs : pkgs?.packages || [];
+        setPackages(Array.isArray(pkgList) ? pkgList : []);
+        // Tolerate a `{ methods: {...} }` wrapper as well as a flat object.
+        const m =
+          mtds && typeof mtds.methods === 'object' && mtds.methods !== null
+            ? mtds.methods
+            : mtds;
+        setMethods(m && typeof m === 'object' ? m : null);
       } catch (err) {
         if (!cancelled) setTopError(err instanceof ApiError ? err.message : 'Could not load payment options.');
       } finally {
@@ -164,7 +243,8 @@ export default function BuyCredits() {
       if (!quiet) setLoadingReqs(true);
       try {
         const data = await api.paymentsListMyRequests(token);
-        setRequests(Array.isArray(data) ? data : data?.requests || []);
+        const list = Array.isArray(data) ? data : data?.requests;
+        setRequests(Array.isArray(list) ? list : []);
         setReqError('');
       } catch (err) {
         if (!quiet) setReqError(err instanceof ApiError ? err.message : 'Could not load your requests.');
@@ -248,6 +328,15 @@ export default function BuyCredits() {
     return 'Could not submit your request. Please try again.';
   }
 
+  // Does the bank field carry anything renderable (a string or a known field)?
+  const bankHasContent =
+    !!asText(methods?.bank) ||
+    (methods?.bank &&
+      typeof methods.bank === 'object' &&
+      BANK_FIELDS.some((f) => firstField(methods.bank, f.keys)));
+  const hasAnyMethod =
+    !!asText(methods?.bkash) || !!asText(methods?.rocket) || !!bankHasContent;
+
   return (
     <>
       <div className="page-header">
@@ -283,7 +372,7 @@ export default function BuyCredits() {
                 onClick={() => selectPackage(pkg)}
                 aria-pressed={active}
               >
-                <div className="pkg-name">{pkg.name}</div>
+                <div className="pkg-name">{asText(pkg.name) || 'Package'}</div>
                 <div className="pkg-credits">{formatNum(pkg.credits)}</div>
                 <div className="pkg-credits-cap">credits</div>
                 <div className="pkg-price">{formatMoney(pkg.price_amount, pkg.currency)}</div>
@@ -304,19 +393,19 @@ export default function BuyCredits() {
           </div>
 
           <div className="pay-methods-grid mt-16">
-            {methods?.bkash && (
-              <CopyCard label="bKash (Send Money)" value={methods.bkash} />
+            {asText(methods?.bkash) && (
+              <CopyCard label="bKash (Send Money)" value={asText(methods.bkash)} />
             )}
-            {methods?.rocket && (
-              <CopyCard label="Rocket (Send Money)" value={methods.rocket} />
+            {asText(methods?.rocket) && (
+              <CopyCard label="Rocket (Send Money)" value={asText(methods.rocket)} />
             )}
-            {methods?.bank && (
-              <CopyCard label="Bank transfer" value={methods.bank} />
-            )}
+            {methods?.bank != null && <BankDetails bank={methods.bank} />}
           </div>
 
-          {methods?.note && <div className="alert alert-info mt-16 mb-0">{methods.note}</div>}
-          {!methods?.bkash && !methods?.rocket && !methods?.bank && (
+          {asText(methods?.note) && (
+            <div className="alert alert-info mt-16 mb-0">{asText(methods.note)}</div>
+          )}
+          {!hasAnyMethod && (
             <p className="field-hint mt-0">Payment instructions are not available right now.</p>
           )}
         </div>
@@ -459,15 +548,15 @@ export default function BuyCredits() {
               <tbody>
                 {requests.map((r) => (
                   <tr key={r.id}>
-                    <td style={{ textTransform: 'capitalize' }}>{r.method}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{asText(r.method) || '—'}</td>
                     <td className="cell-score">{formatNum(r.amount)}</td>
                     <td className="cell-score">{formatNum(r.credits)}</td>
-                    <td className="mono">{r.transaction_id || '—'}</td>
+                    <td className="mono">{asText(r.transaction_id) || '—'}</td>
                     <td>
                       <PaymentBadge status={r.status} />
-                      {r.status === 'rejected' && r.admin_note && (
+                      {asText(r.status) === 'rejected' && asText(r.admin_note) && (
                         <div className="field-hint mt-0" style={{ marginTop: 4 }}>
-                          {r.admin_note}
+                          {asText(r.admin_note)}
                         </div>
                       )}
                     </td>
