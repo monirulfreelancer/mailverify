@@ -126,6 +126,33 @@ export const api = {
   listBulkJobs: (token) => request('/bulk/jobs', { token }),
   getBulkJob: (token, id) => request(`/bulk/jobs/${id}`, { token }),
   bulkDownload: (token, id, filename) => bulkDownload(token, id, filename),
+
+  // --- Admin (role-gated server-side: admin or manager) ---
+  adminGetStats: (token) => request('/admin/stats', { token }),
+  adminListUsers: (token, { limit = 50, offset = 0, search = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (search) params.set('search', search);
+    return request(`/admin/users?${params.toString()}`, { token });
+  },
+  adminGetUser: (token, id) => request(`/admin/users/${id}`, { token }),
+  adminSetCredits: (token, id, { amount, mode }) =>
+    request(`/admin/users/${id}/credits`, {
+      method: 'POST',
+      body: { amount, mode },
+      token,
+    }),
+  adminSetStatus: (token, id, status) =>
+    request(`/admin/users/${id}/status`, {
+      method: 'PATCH',
+      body: { status },
+      token,
+    }),
+  adminSetRole: (token, id, role) =>
+    request(`/admin/users/${id}/role`, {
+      method: 'PATCH',
+      body: { role },
+      token,
+    }),
 };
 
 /**

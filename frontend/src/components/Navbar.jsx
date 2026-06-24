@@ -16,13 +16,17 @@ const LINKS = [
 ];
 
 export default function Navbar() {
-  const { credits, logout } = useAuth();
+  const { credits, logout, user } = useAuth();
   const navigate = useNavigate();
 
   function handleLogout() {
     logout();
     navigate('/login', { replace: true });
   }
+
+  // Admin link is only shown to privileged roles. Placed after "API Keys".
+  const isStaff = user?.role === 'admin' || user?.role === 'manager';
+  const links = isStaff ? [...LINKS, { to: '/admin', label: 'Admin' }] : LINKS;
 
   return (
     <header className="navbar">
@@ -32,7 +36,7 @@ export default function Navbar() {
         </NavLink>
 
         <nav className="nav-links">
-          {LINKS.map((l) => (
+          {links.map((l) => (
             <NavLink
               key={l.to}
               to={l.to}

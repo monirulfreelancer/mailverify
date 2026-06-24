@@ -10,6 +10,7 @@ import Verify from './pages/Verify';
 import Bulk from './pages/Bulk';
 import History from './pages/History';
 import ApiKeys from './pages/ApiKeys';
+import Admin from './pages/Admin';
 
 /**
  * App shell: routing + auth gating.
@@ -43,6 +44,22 @@ function Protected({ children }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return <FullPageLoader />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return (
+    <>
+      <Navbar />
+      <main className="page">{children}</main>
+    </>
+  );
+}
+
+// Wraps the admin page: authenticated AND role-gated to admin/manager.
+// Normal users are redirected to "/" so they never see the admin UI.
+function AdminOnly({ children }) {
+  const { isAuthenticated, loading, user } = useAuth();
+  if (loading) return <FullPageLoader />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  const role = user?.role;
+  if (role !== 'admin' && role !== 'manager') return <Navigate to="/" replace />;
   return (
     <>
       <Navbar />
@@ -133,6 +150,14 @@ export default function App() {
           <Protected>
             <ApiKeys />
           </Protected>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminOnly>
+            <Admin />
+          </AdminOnly>
         }
       />
 
