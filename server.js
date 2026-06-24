@@ -25,26 +25,25 @@ const db = require('./src/db/pool');
 const app = express();
 
 // --- CORS ------------------------------------------------------------------
-// Allow a separate frontend (different origin) to call this API. Origins come
-// from FRONTEND_URL (comma-separated). If unset, fall back to common localhost
-// dev origins with a warning so local development just works.
+// Allow separate frontends (app host + public marketing site) to call this
+// API. The allow-list is the union of CORS_ORIGINS (which defaults to the
+// production app/marketing hosts + Vite dev server — see config.corsOrigins),
+// any legacy FRONTEND_URL entries, and common localhost dev origins. This
+// covers both the app host and the public Contact form on the marketing host.
 const DEV_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'];
-const allowedOrigins =
-  config.frontendUrls.length > 0 ? config.frontendUrls : DEV_ORIGINS;
-if (config.frontendUrls.length === 0) {
-  console.warn(
-    '[cors] FRONTEND_URL not set — allowing localhost dev origins only ' +
-      `(${DEV_ORIGINS.join(', ')}). Set FRONTEND_URL in production.`
-  );
-}
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'X-API-Key', 'Content-Type'],
-    credentials: true,
-  })
-);
+const allowedOrigins = [
+  ...new Set([...config.corsOrigins, ...config.frontendUrls, ...DEV_ORIGINS]),
+];
+console.log(`[cors] allowed origins: ${allowedOrigins.join(', ')}`);
+const corsOptions = {
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'X-API-Key', 'Content-Type'],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+// Answer preflight OPTIONS for every route (incl. the public /api/v1/contact).
+app.options('*', cors(corsOptions));
 
 // Built-in JSON body parser (no third-party body parser needed).
 app.use(express.json());

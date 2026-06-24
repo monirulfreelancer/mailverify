@@ -75,6 +75,20 @@ const config = {
   // Empty => fall back to localhost dev origins (with a warning at startup).
   frontendUrls: parseList(process.env.FRONTEND_URL),
 
+  // Allowed CORS origins (comma-separated CORS_ORIGINS). Defaults to the
+  // production app + marketing hosts plus the local Vite dev server, so both
+  // the app and the public marketing site (Contact form) can call the API.
+  // Override in Coolify via CORS_ORIGINS without editing code.
+  corsOrigins: parseList(
+    process.env.CORS_ORIGINS ||
+      [
+        'https://app.goanglelead.com',
+        'https://goanglelead.com',
+        'https://www.goanglelead.com',
+        'http://localhost:5173',
+      ].join(',')
+  ),
+
   // Free credits granted on signup (mirrors queries.SIGNUP_FREE_CREDITS).
   signupFreeCredits: parseInt(process.env.SIGNUP_FREE_CREDITS || '25', 10),
 
