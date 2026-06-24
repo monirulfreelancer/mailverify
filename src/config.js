@@ -38,6 +38,13 @@ const config = {
 
   // Max emails accepted by the synchronous batch endpoint.
   batchLimit: 100,
+
+  // Allowed CORS origins for the frontend (comma-separated FRONTEND_URL).
+  // Empty => fall back to localhost dev origins (with a warning at startup).
+  frontendUrls: parseList(process.env.FRONTEND_URL),
+
+  // Free credits granted on signup (mirrors queries.SIGNUP_FREE_CREDITS).
+  signupFreeCredits: parseInt(process.env.SIGNUP_FREE_CREDITS || '25', 10),
 };
 
 module.exports = config;

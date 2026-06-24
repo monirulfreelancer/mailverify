@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { query, getClient } = require('./pool');
 
 /**
@@ -11,6 +12,26 @@ const { query, getClient } = require('./pool');
 
 // Domain cache freshness window: rows older than this are treated as expired.
 const DOMAIN_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Free credits granted to a brand-new signup (env-overridable).
+const SIGNUP_FREE_CREDITS = parseInt(process.env.SIGNUP_FREE_CREDITS || '25', 10);
+
+/** SHA-256 hex helper for hashing API keys before storage. */
+function sha256(str) {
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
+
+/** Safe public view of a user row — never exposes password_hash. */
+function publicUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    created_at: row.created_at,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Users / API keys
@@ -333,8 +354,191 @@ async function setDomainCache(domain, data = {}) {
   return rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// Accounts (signup / login / dashboard) — Chunk 5A
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new user with a password hash and grant the signup free-credit
+ * bundle. User row + credits row + ledger entry are created in one transaction.
+ *
+ * @param {string} email
+ * @param {string} passwordHash  bcrypt hash (never the plaintext)
+ * @returns {Promise<object>} public user (no password_hash)
+ */
+async function createUser(email, passwordHash) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    const userRes = await client.query(
+      `INSERT INTO users (email, password_hash, role, status)
+       VALUES ($1, $2, 'user', 'active')
+       RETURNING *`,
+      [email, passwordHash]
+    );
+    const user = userRes.rows[0];
+
+    // Grant free signup credits + record it in the ledger.
+    await client.query(
+      `INSERT INTO credits (user_id, balance, updated_at)
+       VALUES ($1, $2, now())`,
+      [user.id, SIGNUP_FREE_CREDITS]
+    );
+    await client.query(
+      `INSERT INTO credit_ledger (user_id, change, reason)
+       VALUES ($1, $2, 'signup bonus')`,
+      [user.id, SIGNUP_FREE_CREDITS]
+    );
+
+    await client.query('COMMIT');
+    return publicUser(user);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Look up a user by email. Returns the FULL row (including password_hash) — for
+ * internal login use only. Never send this straight to a client.
+ *
+ * @param {string} email
+ * @returns {Promise<object|null>}
+ */
+async function getUserByEmail(email) {
+  const { rows } = await query(
+    `SELECT * FROM users WHERE email = $1 LIMIT 1`,
+    [email]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Look up a user by id. Returns a public user (no password_hash).
+ * @param {number} id
+ * @returns {Promise<object|null>}
+ */
+async function getUserById(id) {
+  const { rows } = await query(
+    `SELECT * FROM users WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  return publicUser(rows[0]);
+}
+
+/**
+ * Generate and store a new API key for a user. Only the SHA-256 hash is stored;
+ * the RAW key is returned ONCE so it can be shown to the user.
+ *
+ * @param {number} userId
+ * @param {string} [name]
+ * @returns {Promise<{ rawKey: string, id: number, name: string, created_at: Date }>}
+ */
+async function createApiKeyForUser(userId, name) {
+  const rawKey = 'mv_' + crypto.randomBytes(24).toString('hex');
+  const keyHash = sha256(rawKey);
+
+  const { rows } = await query(
+    `INSERT INTO api_keys (user_id, key_hash, name)
+     VALUES ($1, $2, $3)
+     RETURNING id, name, created_at`,
+    [userId, keyHash, name || null]
+  );
+
+  return { rawKey, ...rows[0] };
+}
+
+/**
+ * List a user's API keys (metadata only — never the hash or raw key).
+ * @param {number} userId
+ * @returns {Promise<Array>}
+ */
+async function listApiKeys(userId) {
+  const { rows } = await query(
+    `SELECT id, name, last_used_at, created_at, revoked_at
+       FROM api_keys
+      WHERE user_id = $1
+      ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+/**
+ * Revoke one of a user's API keys (scoped to the owner). Idempotent: revoking an
+ * already-revoked key keeps its original revoked_at.
+ *
+ * @param {number} userId
+ * @param {number} keyId
+ * @returns {Promise<boolean>} true if a key belonging to the user was revoked
+ */
+async function revokeApiKey(userId, keyId) {
+  const { rowCount } = await query(
+    `UPDATE api_keys
+        SET revoked_at = COALESCE(revoked_at, now())
+      WHERE id = $1 AND user_id = $2`,
+    [keyId, userId]
+  );
+  return rowCount > 0;
+}
+
+/**
+ * Recent verification results for a user, newest first, paginated.
+ * @param {number} userId
+ * @param {number} limit
+ * @param {number} offset
+ * @returns {Promise<Array>}
+ */
+async function getRecentResults(userId, limit, offset) {
+  const { rows } = await query(
+    `SELECT id, job_id, email, status, sub_status, score,
+            role, disposable, accept_all, free_provider, mx_found, created_at
+       FROM verification_results
+      WHERE user_id = $1
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
+  );
+  return rows;
+}
+
+/**
+ * Aggregate verification stats for a user: total + counts per status.
+ * @param {number} userId
+ * @returns {Promise<{ total: number, valid: number, invalid: number,
+ *   accept_all: number, disposable: number, unknown: number }>}
+ */
+async function getUserStats(userId) {
+  const { rows } = await query(
+    `SELECT
+        COUNT(*)                                              AS total,
+        COUNT(*) FILTER (WHERE status = 'valid')              AS valid,
+        COUNT(*) FILTER (WHERE status = 'invalid')            AS invalid,
+        COUNT(*) FILTER (WHERE status = 'accept_all')         AS accept_all,
+        COUNT(*) FILTER (WHERE status = 'disposable')         AS disposable,
+        COUNT(*) FILTER (WHERE status = 'unknown')            AS unknown
+       FROM verification_results
+      WHERE user_id = $1`,
+    [userId]
+  );
+  const r = rows[0] || {};
+  // COUNT returns strings in pg — coerce to numbers.
+  return {
+    total: parseInt(r.total || 0, 10),
+    valid: parseInt(r.valid || 0, 10),
+    invalid: parseInt(r.invalid || 0, 10),
+    accept_all: parseInt(r.accept_all || 0, 10),
+    disposable: parseInt(r.disposable || 0, 10),
+    unknown: parseInt(r.unknown || 0, 10),
+  };
+}
+
 module.exports = {
   DOMAIN_CACHE_TTL_MS,
+  SIGNUP_FREE_CREDITS,
   getUserByApiKeyHash,
   touchApiKeyLastUsed,
   getCreditBalance,
@@ -346,4 +550,13 @@ module.exports = {
   saveResult,
   getDomainCache,
   setDomainCache,
+  // Accounts
+  createUser,
+  getUserByEmail,
+  getUserById,
+  createApiKeyForUser,
+  listApiKeys,
+  revokeApiKey,
+  getRecentResults,
+  getUserStats,
 };

@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const config = require('../config');
 const db = require('../db/pool');
 const queries = require('../db/queries');
+const { verifyToken } = require('../auth/jwt');
+const { extractBearer } = require('../auth/middleware');
 
 /**
  * API-key authentication middleware.
@@ -74,6 +76,79 @@ async function requireApiKey(req, res, next) {
 }
 
 /**
+ * authenticateVerify — auth for the verification endpoints, accepting EITHER an
+ * X-API-Key header (existing behavior) OR a Bearer JWT (dashboard sessions).
+ *
+ * Resolution order (DB mode):
+ *   1. If X-API-Key is present, resolve it against api_keys (as before).
+ *   2. Else if a Bearer token is present, verify the JWT and load the user.
+ *   3. Else 401.
+ * On success, attaches a normalized `req.user = { id, email, role }` so the
+ * shared credit-spend + result-save logic in the route works for both paths.
+ *
+ * Degraded mode (no DB): preserves the legacy env-API_KEYS fallback (or
+ * auth-disabled) behavior; JWTs can't be resolved without the DB.
+ */
+async function authenticateVerify(req, res, next) {
+  const apiKey = req.get('X-API-Key');
+  const bearer = extractBearer(req);
+
+  // --- DB mode -----------------------------------------------------------
+  if (db.isEnabled()) {
+    try {
+      // 1. API key takes precedence (keeps existing integrations working).
+      if (apiKey) {
+        const keyHash = sha256(apiKey);
+        const user = await queries.getUserByApiKeyHash(keyHash);
+        if (!user) {
+          return res.status(401).json({ error: 'invalid or missing API key' });
+        }
+        req.user = { id: user.id, email: user.email, role: user.role };
+        req.apiKeyHash = keyHash;
+        queries.touchApiKeyLastUsed(keyHash).catch((err) => {
+          console.error('[auth] failed to update last_used_at:', err.message);
+        });
+        return next();
+      }
+
+      // 2. Bearer JWT (dashboard session).
+      if (bearer) {
+        let decoded;
+        try {
+          decoded = verifyToken(bearer);
+        } catch (err) {
+          return res.status(401).json({ error: 'invalid or expired token' });
+        }
+        // Confirm the user still exists / is active.
+        const user = await queries.getUserById(decoded.id);
+        if (!user || user.status !== 'active') {
+          return res.status(401).json({ error: 'invalid or expired token' });
+        }
+        req.user = { id: user.id, email: user.email, role: user.role };
+        return next();
+      }
+
+      // 3. No credentials at all.
+      return res
+        .status(401)
+        .json({ error: 'missing credentials: provide X-API-Key or Bearer token' });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  // --- Degraded mode (no DB): legacy env-API_KEYS fallback ---------------
+  if (config.apiKeys.length === 0) {
+    req.authDisabled = true; // auth disabled (dev) — no user, no credits
+    return next();
+  }
+  if (!apiKey || !config.apiKeys.includes(apiKey)) {
+    return res.status(401).json({ error: 'invalid or missing API key' });
+  }
+  return next();
+}
+
+/**
  * Log a one-time warning at startup describing the active auth mode.
  */
 function warnIfAuthDisabled() {
@@ -95,4 +170,4 @@ function warnIfAuthDisabled() {
   }
 }
 
-module.exports = { requireApiKey, warnIfAuthDisabled, sha256 };
+module.exports = { requireApiKey, authenticateVerify, warnIfAuthDisabled, sha256 };

@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { verify } = require('../engine');
-const { requireApiKey } = require('./auth');
+const { authenticateVerify } = require('./auth');
 const config = require('../config');
 const db = require('../db/pool');
 const queries = require('../db/queries');
@@ -32,7 +32,9 @@ router.get('/health', (req, res) => {
 });
 
 // --- Single verification (auth required) -----------------------------------
-router.post('/verify/single', requireApiKey, async (req, res, next) => {
+// Accepts either an X-API-Key header or a Bearer JWT (dashboard). Either way,
+// req.user is resolved and the credit-spend + result-save logic below applies.
+router.post('/verify/single', authenticateVerify, async (req, res, next) => {
   try {
     const { email } = req.body || {};
 
@@ -82,7 +84,7 @@ router.post('/verify/single', requireApiKey, async (req, res, next) => {
 // for testing and is intentionally capped at config.batchLimit addresses.
 // TODO(billing): batch credit-charging + per-row persistence will be handled by
 // the job/worker flow in Chunk 4B; this sync path stays lightweight for now.
-router.post('/verify/batch', requireApiKey, async (req, res, next) => {
+router.post('/verify/batch', authenticateVerify, async (req, res, next) => {
   try {
     const { emails } = req.body || {};
 

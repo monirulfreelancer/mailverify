@@ -3,8 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const cors = require('cors');
 const config = require('./src/config');
 const routes = require('./src/api/routes');
+const accountRoutes = require('./src/api/account-routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
 const db = require('./src/db/pool');
 
@@ -16,6 +18,28 @@ const db = require('./src/db/pool');
  */
 
 const app = express();
+
+// --- CORS ------------------------------------------------------------------
+// Allow a separate frontend (different origin) to call this API. Origins come
+// from FRONTEND_URL (comma-separated). If unset, fall back to common localhost
+// dev origins with a warning so local development just works.
+const DEV_ORIGINS = ['http://localhost:5173', 'http://localhost:3000'];
+const allowedOrigins =
+  config.frontendUrls.length > 0 ? config.frontendUrls : DEV_ORIGINS;
+if (config.frontendUrls.length === 0) {
+  console.warn(
+    '[cors] FRONTEND_URL not set — allowing localhost dev origins only ' +
+      `(${DEV_ORIGINS.join(', ')}). Set FRONTEND_URL in production.`
+  );
+}
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'X-API-Key', 'Content-Type'],
+    credentials: true,
+  })
+);
 
 // Built-in JSON body parser (no third-party body parser needed).
 app.use(express.json());
@@ -34,7 +58,8 @@ app.use((req, res, next) => {
 });
 
 // --- Routes ----------------------------------------------------------------
-app.use('/api/v1', routes);
+app.use('/api/v1', routes); // health + verify (X-API-Key or Bearer)
+app.use('/api/v1', accountRoutes); // auth (signup/login/me) + account (dashboard)
 
 // --- 404 fallback ----------------------------------------------------------
 app.use((req, res) => {
