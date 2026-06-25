@@ -29,6 +29,20 @@ const PAYMENT_STATUS = {
   rejected: { cls: 'rejected', label: 'Rejected' },
 };
 
+/**
+ * Per-method brand styling. Colors are tasteful approximations rendered as pure
+ * CSS/SVG badges — NO trademarked logo artwork is used.
+ */
+const BRAND = {
+  bkash: { name: 'bKash', tag: 'Send Money', color: '#E2136E', soft: '#fdecf4', icon: 'mobile' },
+  rocket: { name: 'Rocket', tag: 'Send Money', color: '#8C3494', soft: '#f5edf8', icon: 'mobile' },
+  nagad: { name: 'Nagad', tag: 'Send Money', color: '#EE7325', soft: '#fdf0e7', icon: 'mobile' },
+  bank: { name: 'Bank Transfer', tag: 'Direct deposit', color: '#1e40af', soft: '#eaf0fb', icon: 'bank' },
+};
+
+// Soft accent colors cycled across the package cards (decorative only).
+const PKG_ACCENTS = ['#10b981', '#6366f1', '#8b5cf6', '#f59e0b'];
+
 function PaymentBadge({ status }) {
   const key = asText(status);
   const s = PAYMENT_STATUS[key] || { cls: 'unknown', label: key || 'Unknown' };
@@ -114,17 +128,21 @@ function senderLabel(method) {
   return 'Your account / sender info';
 }
 
-/* -------------------------------------------------------------------------- */
-/* Copyable instruction card                                                  */
-/* -------------------------------------------------------------------------- */
+/* Which package to flag as "Most popular": prefer Pro, then Basic, else 2nd. */
+function popularPackageId(packages) {
+  if (!Array.isArray(packages) || packages.length === 0) return null;
+  const byName = (sub) =>
+    packages.find((p) => asText(p.name).toLowerCase().includes(sub));
+  const pick = byName('pro') || byName('basic') || packages[1] || null;
+  return pick ? pick.id : null;
+}
 
-function CopyCard({ label, value, hint }) {
+/* Shared copy-to-clipboard hook for the branded method cards. */
+function useCopy() {
   const [copied, setCopied] = useState(false);
   const timer = useRef(null);
-
   useEffect(() => () => clearTimeout(timer.current), []);
-
-  async function copy() {
+  const copy = useCallback(async (value) => {
     if (!value) return;
     try {
       await navigator.clipboard.writeText(String(value));
@@ -134,18 +152,60 @@ function CopyCard({ label, value, hint }) {
     setCopied(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), 1800);
-  }
+  }, []);
+  return [copied, copy];
+}
 
+/* -------------------------------------------------------------------------- */
+/* Branded SVG glyphs (no trademarked logos — generic wallet / bank shapes)    */
+/* -------------------------------------------------------------------------- */
+
+function MethodGlyph({ kind }) {
+  if (kind === 'bank') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3 3 8h18L12 3Z" fill="currentColor" />
+        <path d="M5 10v7M9 10v7M15 10v7M19 10v7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M3 20h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  // Generic mobile-wallet glyph for mobile financial services.
   return (
-    <div className="pay-method">
-      <div className="pay-method-info">
-        <div className="pay-method-label">{label}</div>
-        <div className="pay-method-value mono">{value || '—'}</div>
-        {hint && <div className="pay-method-hint">{hint}</div>}
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="6" y="2.5" width="12" height="19" rx="2.5" stroke="currentColor" strokeWidth="2" />
+      <path d="M10 18.5h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M9 7h6M9 10h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".7" />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Branded mobile-money method card                                           */
+/* -------------------------------------------------------------------------- */
+
+function BrandMethodCard({ brand, value }) {
+  const [copied, copy] = useCopy();
+  return (
+    <div className="brand-method" style={{ '--brand': brand.color, '--brand-soft': brand.soft }}>
+      <div className="brand-method-top">
+        <span className="brand-badge">
+          <MethodGlyph kind={brand.icon} />
+        </span>
+        <div>
+          <div className="brand-method-name">
+            {brand.name} <span className="brand-method-tag">{brand.tag}</span>
+          </div>
+        </div>
       </div>
+      <div className="brand-method-number mono">{value || '—'}</div>
       {value && (
-        <button type="button" className="btn btn-secondary btn-xs" onClick={copy}>
-          {copied ? '✓ Copied' : 'Copy'}
+        <button
+          type="button"
+          className={`brand-copy${copied ? ' copied' : ''}`}
+          onClick={() => copy(value)}
+        >
+          {copied ? '✓ Copied' : 'Copy number'}
         </button>
       )}
     </div>
@@ -153,64 +213,70 @@ function CopyCard({ label, value, hint }) {
 }
 
 /**
- * Bank transfer instructions. `bank` may be a string (render via CopyCard) or a
- * structured object (render each known field as a labeled line). Anything else
+ * Bank transfer instructions, styled as a wide branded card. `bank` may be a
+ * string (single value) or a structured object (labeled fields). Anything else
  * renders nothing instead of crashing.
  */
 function BankDetails({ bank }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef(null);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
+  const [copied, copy] = useCopy();
+  const brand = BRAND.bank;
   const asString = asText(bank);
-  if (asString) {
-    return <CopyCard label="Bank transfer" value={asString} />;
-  }
 
-  if (bank && typeof bank === 'object') {
-    const lines = BANK_FIELDS
+  let lines = [];
+  let copyText = '';
+  let copyLabel = 'Copy';
+
+  if (asString) {
+    lines = [{ label: 'Details', value: asString }];
+    copyText = asString;
+  } else if (bank && typeof bank === 'object') {
+    lines = BANK_FIELDS
       .map((f) => ({ label: f.label, value: firstField(bank, f.keys) }))
       .filter((line) => line.value);
-
     if (lines.length === 0) return null;
-
     const accountNumber = firstField(bank, ['account_number', 'accountNumber', 'account', 'acct']);
-    // Copy the account number primarily; fall back to the full labeled block.
-    const copyText = accountNumber || lines.map((l) => `${l.label}: ${l.value}`).join('\n');
-
-    async function copy() {
-      if (!copyText) return;
-      try {
-        await navigator.clipboard.writeText(String(copyText));
-      } catch {
-        /* clipboard unavailable — ignore */
-      }
-      setCopied(true);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1800);
-    }
-
-    return (
-      <div className="pay-method pay-method-bank">
-        <div className="pay-method-info">
-          <div className="pay-method-label">Bank transfer</div>
-          {lines.map((line) => (
-            <div className="pay-bank-line" key={line.label}>
-              <span className="pay-bank-key">{line.label}:</span>{' '}
-              <span className="pay-bank-val mono">{line.value}</span>
-            </div>
-          ))}
-        </div>
-        {copyText && (
-          <button type="button" className="btn btn-secondary btn-xs" onClick={copy}>
-            {copied ? '✓ Copied' : accountNumber ? 'Copy account #' : 'Copy'}
-          </button>
-        )}
-      </div>
-    );
+    copyText = accountNumber || lines.map((l) => `${l.label}: ${l.value}`).join('\n');
+    copyLabel = accountNumber ? 'Copy account #' : 'Copy details';
+  } else {
+    return null;
   }
 
-  return null;
+  return (
+    <div
+      className="brand-method brand-method-bank"
+      style={{ '--brand': brand.color, '--brand-soft': brand.soft }}
+    >
+      <div className="brand-method-top">
+        <span className="brand-badge">
+          <MethodGlyph kind={brand.icon} />
+        </span>
+        <div>
+          <div className="brand-method-name">
+            {brand.name} <span className="brand-method-tag">{brand.tag}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="brand-bank-grid">
+        {lines.map((line) => (
+          <div className="brand-bank-line" key={line.label}>
+            <span className="brand-bank-key">{line.label}</span>
+            <span className="brand-bank-val mono">{line.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {copyText && (
+        <button
+          type="button"
+          className={`brand-copy${copied ? ' copied' : ''}`}
+          onClick={() => copy(copyText)}
+        >
+          {copied ? '✓ Copied' : copyLabel}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -381,11 +447,13 @@ export default function BuyCredits() {
   const nagadNumber = methodNumber(methods?.nagad);
   const hasAnyMethod = !!bkashNumber || !!rocketNumber || !!nagadNumber || !!bankHasContent;
 
+  const popularId = popularPackageId(packages);
+
   return (
     <>
-      <div className="page-header">
+      <div className="page-header buy-header">
         <h1>Buy Credits</h1>
-        <p>Top up your verification credits.</p>
+        <p>Top up your verification credits — pick a package and pay in seconds.</p>
       </div>
 
       {topError && <div className="alert alert-error">{topError}</div>}
@@ -406,21 +474,28 @@ export default function BuyCredits() {
         </div>
       ) : (
         <div className="pkg-grid">
-          {packages.map((pkg) => {
+          {packages.map((pkg, i) => {
             const active = pkg.id === selectedId;
+            const popular = pkg.id === popularId;
+            const accent = PKG_ACCENTS[i % PKG_ACCENTS.length];
             return (
               <button
                 type="button"
                 key={pkg.id}
-                className={`pkg-card${active ? ' active' : ''}`}
+                className={`pkg-card${active ? ' active' : ''}${popular ? ' popular' : ''}`}
+                style={{ '--accent': accent }}
                 onClick={() => selectPackage(pkg)}
                 aria-pressed={active}
               >
+                <span className="pkg-strip" aria-hidden="true" />
+                {popular && <span className="pkg-badge">★ Most popular</span>}
                 <div className="pkg-name">{asText(pkg.name) || 'Package'}</div>
                 <div className="pkg-credits">{formatNum(pkg.credits)}</div>
                 <div className="pkg-credits-cap">credits</div>
                 <div className="pkg-price">{formatMoney(pkg.price_amount, pkg.currency)}</div>
-                {active && <div className="pkg-check" aria-hidden="true">✓ Selected</div>}
+                <div className="pkg-select" aria-hidden="true">
+                  {active ? '✓ Selected' : 'Select'}
+                </div>
               </button>
             );
           })}
@@ -432,25 +507,28 @@ export default function BuyCredits() {
         <div className="card mt-24">
           <div className="card-title">How to pay</div>
           <div className="pay-steps">
-            <span><strong>1.</strong> Send the exact amount to one of the methods below.</span>
-            <span><strong>2.</strong> Then submit the form with your transaction ID.</span>
+            <div className="pay-step">
+              <span className="pay-step-num">1</span>
+              <span>Send the exact amount to one of the methods below.</span>
+            </div>
+            <div className="pay-step">
+              <span className="pay-step-num">2</span>
+              <span>Then submit the form with your transaction ID.</span>
+            </div>
           </div>
 
-          <div className="pay-methods-grid mt-16">
-            {bkashNumber && (
-              <CopyCard label="bKash (Send Money)" value={bkashNumber} />
-            )}
-            {rocketNumber && (
-              <CopyCard label="Rocket (Send Money)" value={rocketNumber} />
-            )}
-            {nagadNumber && (
-              <CopyCard label="Nagad (Send Money)" value={nagadNumber} />
-            )}
+          <div className="brand-methods mt-16">
+            {bkashNumber && <BrandMethodCard brand={BRAND.bkash} value={bkashNumber} />}
+            {rocketNumber && <BrandMethodCard brand={BRAND.rocket} value={rocketNumber} />}
+            {nagadNumber && <BrandMethodCard brand={BRAND.nagad} value={nagadNumber} />}
             {methods?.bank != null && <BankDetails bank={methods.bank} />}
           </div>
 
           {asText(methods?.note) && (
-            <div className="alert alert-info mt-16 mb-0">{asText(methods.note)}</div>
+            <div className="pay-note mt-16">
+              <span className="pay-note-icon" aria-hidden="true">i</span>
+              <span>{asText(methods.note)}</span>
+            </div>
           )}
           {!hasAnyMethod && (
             <p className="field-hint mt-0">Payment instructions are not available right now.</p>
