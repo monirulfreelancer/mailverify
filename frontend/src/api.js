@@ -177,6 +177,25 @@ export const api = {
       token,
     }),
 
+  // --- Blog (public, no auth) ---
+  blogList: ({ limit = 12, offset = 0 } = {}) =>
+    request(`/blog?limit=${limit}&offset=${offset}`),
+  blogGetBySlug: (slug) => request(`/blog/${encodeURIComponent(slug)}`),
+
+  // --- Blog (admin/manager, JWT) ---
+  adminBlogList: (token, { status = '', limit = 50, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (status) params.set('status', status);
+    return request(`/admin/blog?${params.toString()}`, { token });
+  },
+  adminBlogGet: (token, id) => request(`/admin/blog/${id}`, { token }),
+  adminBlogCreate: (token, body) =>
+    request('/admin/blog', { method: 'POST', body, token }),
+  adminBlogUpdate: (token, id, body) =>
+    request(`/admin/blog/${id}`, { method: 'PUT', body, token }),
+  adminBlogDelete: (token, id) =>
+    request(`/admin/blog/${id}`, { method: 'DELETE', token }),
+
   // --- Contact (public submit) ---
   contactSubmit: ({ name, email, subject, message }) =>
     request('/contact', { method: 'POST', body: { name, email, subject, message } }),

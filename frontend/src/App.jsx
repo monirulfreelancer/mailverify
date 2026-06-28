@@ -9,7 +9,8 @@ import Landing from './pages/Landing';
 import Features from './pages/Features';
 import Pricing from './pages/Pricing';
 import Contact from './pages/Contact';
-import ComingSoon from './pages/ComingSoon';
+import Blog from './pages/Blog';
+import BlogPost from './pages/BlogPost';
 import Verify from './pages/Verify';
 import Bulk from './pages/Bulk';
 import History from './pages/History';
@@ -118,10 +119,8 @@ export default function App() {
           simply remain publicly viewable). */}
       <Route path="/features" element={<Features />} />
       <Route path="/pricing" element={<Pricing />} />
-      <Route
-        path="/blog"
-        element={<ComingSoon title="Blog" subtitle="Guides and updates on deliverability are on the way." />}
-      />
+      <Route path="/blog" element={<Blog />} />
+      <Route path="/blog/:slug" element={<BlogPost />} />
       <Route path="/contact" element={<Contact />} />
 
       {/* Authenticated pages share the sidebar shell (AppLayout). */}

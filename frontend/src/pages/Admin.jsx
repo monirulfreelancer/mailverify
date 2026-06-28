@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../api';
 import Spinner from '../components/Spinner';
+import BlogManager from '../components/BlogManager';
 
 /**
  * Admin dashboard (role-gated to admin/manager — enforced in App.jsx and again
@@ -943,6 +944,8 @@ export default function Admin() {
       <PaymentsSection token={token} />
 
       <ContactSection token={token} />
+
+      <BlogManager token={token} isAdmin={isAdmin} />
     </>
   );
 }
