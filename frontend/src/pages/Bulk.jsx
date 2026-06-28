@@ -217,7 +217,8 @@ function JobCard({ job, token, onError, onDeleted }) {
             }}
             disabled={deleting || confirming}
           >
-            🗑
+            <span className="bulk-job-delete-icon" aria-hidden="true">🗑</span>
+            <span className="bulk-job-delete-label">Delete</span>
           </button>
         </div>
       </div>

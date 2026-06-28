@@ -661,28 +661,40 @@ h3 {
   align-items: center;
   gap: 8px;
 }
-/* Subtle trash button: muted by default, turns red on hover/focus. */
+/* Clear "delete" button: red-tinted by default, solid red on hover/focus. */
 .bulk-job-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid transparent;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(220, 38, 38, 0.35);
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.15s ease;
+}
+.bulk-job-delete-icon {
+  font-size: 17px;
+  line-height: 1;
 }
 .bulk-job-delete:hover:not(:disabled),
 .bulk-job-delete:focus-visible {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.25);
-  color: #dc2626;
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+  transform: translateY(-1px);
+}
+.bulk-job-delete:focus-visible {
+  outline: 2px solid rgba(220, 38, 38, 0.5);
+  outline-offset: 2px;
 }
 .bulk-job-delete:disabled {
   opacity: 0.5;
