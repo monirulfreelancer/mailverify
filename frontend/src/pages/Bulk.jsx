@@ -218,7 +218,7 @@ function JobCard({ job, token, onError }) {
       )}
 
       {job.status === 'completed' && (
-        <div style={{ marginTop: 16 }}>
+        <div className="bulk-download">
           <button
             className="btn btn-secondary"
             onClick={download}
@@ -445,7 +445,7 @@ export default function Bulk() {
             </div>
           </div>
         ) : (
-          <div>
+          <div className="bulk-jobs-grid">
             {jobs.map((job) => (
               <JobCard key={job.id} job={job} token={token} onError={setListError} />
             ))}
