@@ -9,23 +9,13 @@ import '../landing.css';
 
 /**
  * Public single blog post page (/blog/:slug). Fetches the published post,
- * renders the cover image, title, date, and the Markdown body as sanitized
- * HTML. Sets document.title for basic SEO and shows a friendly 404 with a link
- * back to the index when the slug doesn't resolve.
+ * renders the cover image, title, and the Markdown body as sanitized HTML.
+ * Sets document.title for basic SEO and shows a friendly 404 with a link back
+ * to the index when the slug doesn't resolve. The publish date is intentionally
+ * hidden from public readers.
  */
 
 const SITE = 'mailverify';
-
-function formatDate(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
 
 export default function BlogPost() {
   const { slug } = useParams();
@@ -99,9 +89,6 @@ export default function BlogPost() {
               <Link to="/blog" className="lp-back-link">← Back to blog</Link>
 
               <header className="blog-post-header">
-                {post.published_at && (
-                  <span className="blog-post-date">{formatDate(post.published_at)}</span>
-                )}
                 <h1 className="blog-post-title">{post.title}</h1>
                 {post.excerpt && <p className="blog-post-lede">{post.excerpt}</p>}
               </header>

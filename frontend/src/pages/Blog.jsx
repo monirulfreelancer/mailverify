@@ -14,17 +14,6 @@ import '../landing.css';
 
 const PAGE_SIZE = 12;
 
-function formatDate(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 function PostCard({ post }) {
   return (
     <Link to={`/blog/${post.slug}`} className="blog-card">
@@ -43,9 +32,6 @@ function PostCard({ post }) {
         )}
       </div>
       <div className="blog-card-body">
-        {post.published_at && (
-          <span className="blog-card-date">{formatDate(post.published_at)}</span>
-        )}
         <h3 className="blog-card-title">{post.title}</h3>
         {post.excerpt && <p className="blog-card-excerpt">{post.excerpt}</p>}
         <span className="blog-card-readmore">Read more →</span>

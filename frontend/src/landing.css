@@ -1258,7 +1258,7 @@ html {
   letter-spacing: 0.03em;
 }
 .blog-card-title {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
@@ -1333,7 +1333,7 @@ html {
   letter-spacing: 0.03em;
 }
 .blog-post-title {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: 40px;
   font-weight: 800;
   line-height: 1.15;
