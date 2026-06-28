@@ -607,10 +607,16 @@ h3 {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-  padding: 18px 20px;
+  padding: 20px 22px;
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.bulk-job:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
 }
 .bulk-job + .bulk-job {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 .bulk-job-head {
   display: flex;
@@ -674,6 +680,26 @@ h3 {
 .count-chip .num {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Bulk: per-job result breakdown (donut + legend) ---------- */
+.bulk-breakdown {
+  margin-top: 16px;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.bulk-breakdown .donut-wrap {
+  gap: 22px;
+}
+.bulk-breakdown .donut-legend {
+  min-width: 180px;
+}
+@media (max-width: 520px) {
+  .bulk-breakdown .donut-wrap {
+    justify-content: center;
+  }
 }
 
 /* ---------- Verify result ---------- */

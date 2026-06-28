@@ -26,13 +26,28 @@ const STATUS_LABELS = {
   failed: 'Failed',
 };
 
-// Count chips shown per job, with swatch colors matching the app palette.
-const COUNT_FIELDS = [
-  { key: 'valid', label: 'Valid', color: 'var(--green)' },
-  { key: 'invalid', label: 'Invalid', color: 'var(--red)' },
-  { key: 'catch_all', label: 'Catch-all', color: 'var(--amber)' },
-  { key: 'unknown', label: 'Unknown', color: 'var(--gray)' },
+// Per-job result breakdown for the donut + legend. Colors match the app-wide
+// status mapping used by the Dashboard donut (valid=green, catch-all=amber,
+// disposable=purple, invalid=red, unknown=gray). `accept_all` and `catch_all`
+// are the same status spelled two ways across the API.
+const STATUS_SEGMENTS = [
+  { key: 'valid', label: 'Valid', color: '#16a34a' },
+  { key: 'catch_all', label: 'Catch-all', color: '#d97706', altKey: 'accept_all' },
+  { key: 'disposable', label: 'Disposable', color: '#9333ea', altKey: 'disposable_count' },
+  { key: 'invalid', label: 'Invalid', color: '#dc2626' },
+  { key: 'unknown', label: 'Unknown', color: '#64748b' },
 ];
+
+// Read a status count off a job, tolerating either spelling of the field.
+// Returns null when the field is absent entirely (so the slice can be omitted
+// rather than rendered as a zero — e.g. disposable, which the job-level
+// aggregate may not expose).
+function countFor(job, seg) {
+  if (!job) return null;
+  if (typeof job[seg.key] === 'number') return job[seg.key];
+  if (seg.altKey && typeof job[seg.altKey] === 'number') return job[seg.altKey];
+  return null;
+}
 
 function formatDate(value) {
   if (!value) return '';
@@ -51,6 +66,61 @@ function extractJobs(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.jobs)) return data.jobs;
   return [];
+}
+
+/**
+ * Lightweight inline-SVG donut chart — same technique/colors as the Dashboard
+ * donut, sized down for a per-job mini stats panel. No chart dependency.
+ */
+function Donut({ segments, size = 124, stroke = 18 }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const total = segments.reduce((s, x) => s + x.value, 0);
+
+  let offset = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Result breakdown">
+      <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--gray-bg)"
+          strokeWidth={stroke}
+        />
+        {total > 0 &&
+          segments
+            .filter((s) => s.value > 0)
+            .map((s) => {
+              const len = (s.value / total) * c;
+              const dash = `${len} ${c - len}`;
+              const el = (
+                <circle
+                  key={s.key}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={r}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={stroke}
+                  strokeDasharray={dash}
+                  strokeDashoffset={-offset}
+                  strokeLinecap="butt"
+                />
+              );
+              offset += len;
+              return el;
+            })}
+      </g>
+      <text x="50%" y="46%" textAnchor="middle" fontSize="22" fontWeight="800" fill="var(--text)">
+        {total.toLocaleString()}
+      </text>
+      <text x="50%" y="61%" textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-muted)">
+        checked
+      </text>
+    </svg>
+  );
 }
 
 function BulkStatusBadge({ status }) {
@@ -80,6 +150,16 @@ function JobCard({ job, token, onError }) {
 
   const total = job.total_emails ?? 0;
   const processed = job.processed ?? 0;
+
+  // Build the donut segments from whatever per-status counts the job exposes.
+  // Slices whose field is absent (e.g. disposable, which the job aggregate may
+  // not track) are dropped so we never render a phantom zero slice.
+  const segments = STATUS_SEGMENTS.map((seg) => ({
+    ...seg,
+    value: countFor(job, seg),
+  })).filter((seg) => seg.value != null);
+  const breakdownTotal = segments.reduce((sum, s) => sum + s.value, 0);
+  const showBreakdown = breakdownTotal > 0;
 
   async function download() {
     setDownloading(true);
@@ -111,14 +191,31 @@ function JobCard({ job, token, onError }) {
 
       <ProgressBar processed={processed} total={total} status={job.status} />
 
-      <div className="bulk-counts">
-        {COUNT_FIELDS.map((f) => (
-          <span className="count-chip" key={f.key}>
-            <span className="swatch" style={{ background: f.color }} />
-            {f.label}: <span className="num">{(job[f.key] ?? 0).toLocaleString()}</span>
-          </span>
-        ))}
-      </div>
+      {showBreakdown && (
+        <div className="bulk-breakdown">
+          <div className="donut-wrap">
+            <Donut segments={segments} />
+            <div className="donut-legend">
+              {segments.map((seg) => {
+                const pct =
+                  breakdownTotal > 0 ? Math.round((seg.value / breakdownTotal) * 100) : 0;
+                return (
+                  <div className="legend-row" key={seg.key}>
+                    <span className="label">
+                      <span className="swatch" style={{ background: seg.color, borderRadius: 3 }} />
+                      {seg.label}
+                    </span>
+                    <span className="value">
+                      {seg.value.toLocaleString()}
+                      <span className="legend-pct">{pct}%</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {job.status === 'completed' && (
         <div style={{ marginTop: 16 }}>
