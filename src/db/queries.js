@@ -525,6 +525,63 @@ async function getBulkResults(bulkJobId) {
   return rows;
 }
 
+/**
+ * Delete a bulk job and its result rows, scoped to its owner, in a transaction.
+ *
+ * Ownership is checked up front: the bulk_jobs row is selected FOR UPDATE
+ * WHERE user_id matches, so another user's job can never be removed (and the
+ * row is locked against a concurrent worker for the rest of the txn). If no
+ * such row exists (missing or not owned), we roll back and report nothing
+ * deleted — without touching any result rows.
+ *
+ * The child rows (bulk_results.bulk_job_id) are deleted BEFORE the parent
+ * because the FK has no ON DELETE CASCADE — removing the job first would raise
+ * a foreign-key violation.
+ *
+ * This does NOT refund credits — the verification work was already performed.
+ * Works regardless of the job's status (a 'processing' job can still be
+ * removed; the FOR UPDATE lock simply serializes against the worker).
+ *
+ * @param {number} jobId
+ * @param {number} userId
+ * @returns {Promise<boolean>} true if a job belonging to the user was deleted
+ */
+async function deleteBulkJob(jobId, userId) {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Ownership check + lock. If this finds nothing, the job is missing or owned
+    // by someone else — abort without touching any results.
+    const owned = await client.query(
+      `SELECT id FROM bulk_jobs WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [jobId, userId]
+    );
+    if (owned.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    // Children first (no ON DELETE CASCADE on the FK), then the job row.
+    await client.query(
+      `DELETE FROM bulk_results WHERE bulk_job_id = $1`,
+      [jobId]
+    );
+    await client.query(
+      `DELETE FROM bulk_jobs WHERE id = $1 AND user_id = $2`,
+      [jobId, userId]
+    );
+
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Domain cache
 // ---------------------------------------------------------------------------
@@ -1397,6 +1454,7 @@ module.exports = {
   getBulkJob,
   getBulkJobById,
   getBulkResults,
+  deleteBulkJob,
   getDomainCache,
   setDomainCache,
   // Accounts

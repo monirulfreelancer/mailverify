@@ -145,8 +145,11 @@ function ProgressBar({ processed, total, status }) {
   );
 }
 
-function JobCard({ job, token, onError }) {
+function JobCard({ job, token, onError, onDeleted }) {
   const [downloading, setDownloading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const total = job.total_emails ?? 0;
   const processed = job.processed ?? 0;
@@ -172,6 +175,21 @@ function JobCard({ job, token, onError }) {
     }
   }
 
+  // Delete this job. We only mutate parent state on success (onDeleted), so a
+  // failed delete (e.g. 404) leaves the card in place with an inline error.
+  async function confirmDelete() {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.deleteBulkJob(token, job.id);
+      onDeleted(job.id); // card unmounts — no need to reset local state
+    } catch (err) {
+      setDeleteError(err.message || 'Could not delete this job.');
+      setDeleting(false);
+      setConfirming(false);
+    }
+  }
+
   return (
     <div className="bulk-job">
       <div className="bulk-job-head">
@@ -186,8 +204,52 @@ function JobCard({ job, token, onError }) {
             </div>
           </div>
         </div>
-        <BulkStatusBadge status={job.status} />
+        <div className="bulk-job-head-actions">
+          <BulkStatusBadge status={job.status} />
+          <button
+            type="button"
+            className="bulk-job-delete"
+            title="Delete job"
+            aria-label="Delete job"
+            onClick={() => {
+              setDeleteError('');
+              setConfirming(true);
+            }}
+            disabled={deleting || confirming}
+          >
+            🗑
+          </button>
+        </div>
       </div>
+
+      {confirming && (
+        <div className="bulk-confirm">
+          <p>
+            Delete this job? This removes the results from your list and can&apos;t be
+            undone. Credits are not refunded.
+          </p>
+          <div className="bulk-confirm-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? <Spinner size={14} onDark /> : 'Delete'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {deleteError && <div className="bulk-delete-error">{deleteError}</div>}
 
       <ProgressBar processed={processed} total={total} status={job.status} />
 
@@ -268,6 +330,12 @@ export default function Bulk() {
   useEffect(() => {
     loadJobs();
   }, [loadJobs]);
+
+  // Optimistically drop a deleted job from the list. The polling effect keys off
+  // the remaining jobs, so removing one never disturbs in-progress jobs' polling.
+  const handleJobDeleted = useCallback((id) => {
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
 
   // Polling: run an interval whenever at least one job is active; tear it down
   // when none are (or on unmount).
@@ -447,7 +515,13 @@ export default function Bulk() {
         ) : (
           <div className="bulk-jobs-grid">
             {jobs.map((job) => (
-              <JobCard key={job.id} job={job} token={token} onError={setListError} />
+              <JobCard
+                key={job.id}
+                job={job}
+                token={token}
+                onError={setListError}
+                onDeleted={handleJobDeleted}
+              />
             ))}
           </div>
         )}

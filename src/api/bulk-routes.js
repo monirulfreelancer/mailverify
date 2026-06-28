@@ -250,4 +250,28 @@ router.get('/bulk/jobs/:id/download', authenticateVerify, async (req, res, next)
   }
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /bulk/jobs/:id  — remove a job and its results (owner only)
+// ---------------------------------------------------------------------------
+// Deleting only drops the job from the user's list; it does NOT refund credits
+// (the verification work was already performed). The query is ownership-scoped,
+// so a user can never delete someone else's job — that case returns 404, same
+// as a missing job.
+router.delete('/bulk/jobs/:id', authenticateVerify, async (req, res, next) => {
+  try {
+    if (!ensureBulkAvailable(req, res)) return;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'invalid job id' });
+    }
+    const deleted = await queries.deleteBulkJob(id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'bulk job not found' });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 module.exports = router;

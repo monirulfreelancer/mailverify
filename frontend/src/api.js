@@ -126,6 +126,7 @@ export const api = {
   listBulkJobs: (token) => request('/bulk/jobs', { token }),
   getBulkJob: (token, id) => request(`/bulk/jobs/${id}`, { token }),
   bulkDownload: (token, id, filename) => bulkDownload(token, id, filename),
+  deleteBulkJob: (token, id) => request(`/bulk/jobs/${id}`, { method: 'DELETE', token }),
 
   // --- Admin (role-gated server-side: admin or manager) ---
   adminGetStats: (token) => request('/admin/stats', { token }),
