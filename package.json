@@ -12,6 +12,7 @@
     "migrate:admin": "node src/db/migrate-admin.js",
     "migrate:payments": "node src/db/migrate-payments.js",
     "migrate:contact": "node src/db/migrate-contact.js",
+    "migrate:blog": "node src/db/migrate-blog.js",
     "seed": "node src/db/seed.js"
   },
   "keywords": [

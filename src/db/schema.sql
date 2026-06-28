@@ -209,3 +209,25 @@ CREATE TABLE IF NOT EXISTS contact_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages (status, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- blog_posts  (public blog; admins/managers author posts in Markdown)
+-- ---------------------------------------------------------------------------
+-- The public site lists/reads only 'published' posts; admins/managers manage
+-- drafts and publishing. `content` is the raw Markdown source — rendering happens
+-- on the frontend, so nothing is sanitized server-side beyond parameterized SQL.
+CREATE TABLE IF NOT EXISTS blog_posts (
+  id              SERIAL PRIMARY KEY,
+  title           TEXT NOT NULL,
+  slug            TEXT UNIQUE NOT NULL,
+  excerpt         TEXT,
+  content         TEXT NOT NULL,                  -- Markdown source
+  cover_image_url TEXT,
+  status          TEXT NOT NULL DEFAULT 'draft',  -- 'draft' | 'published'
+  author_id       INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_at    TIMESTAMPTZ
+);
+-- Speeds up the public "newest published first" listing.
+CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published ON blog_posts (status, published_at DESC);

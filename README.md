@@ -22,6 +22,7 @@ Useful scripts:
 | `npm run migrate:admin` | Promote the bootstrap accounts to the `admin` role. |
 | `npm run migrate:payments` | Create the payment tables + seed default credit packages. |
 | `npm run migrate:contact` | Create the `contact_messages` table (public contact form). |
+| `npm run migrate:blog` | Create the `blog_posts` table (public blog + admin authoring). |
 | `npm run seed`    | Create the admin user + one API key (prints raw key).   |
 
 Without `DATABASE_URL` the app still runs (no persistence, no credits, auth falls
@@ -254,6 +255,62 @@ curl "http://localhost:3000/api/v1/admin/contact?status=new" \
 curl -X PATCH http://localhost:3000/api/v1/admin/contact/3 \
   -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
   -d '{"status":"read"}'
+```
+
+## Blog
+
+A simple Markdown blog: a **public** read-only API (list + single post) and
+**admin/manager** CRUD for authoring. Posts are written in Markdown; the
+`content` field stores the raw Markdown source and is returned verbatim —
+**rendering happens on the frontend**. Cover images are supplied as a URL
+(`cover_image_url`); there is no file upload.
+
+Backed by one table, **`blog_posts`** (`id, title, slug, excerpt, content,
+cover_image_url, status, author_id, created_at, updated_at, published_at`), where
+`status` ∈ `draft`\|`published` (default `draft`). The `slug` is unique; if not
+supplied on create it is generated from the title (lowercased, hyphenated,
+url-safe) and de-duplicated with a `-2`, `-3`, … suffix. A post's `published_at`
+is stamped the first time it transitions to `published`.
+
+It is part of `schema.sql`; on an existing database add just it with:
+
+```bash
+npm run migrate:blog
+```
+
+### Public endpoints (no auth)
+
+Mounted under **`/api/v1/blog`**. Only **published** posts are ever visible here.
+Returns `503` without a configured database.
+
+| Method & path             | Query           | What it does                                                                 |
+| ------------------------- | --------------- | --------------------------------------------------------------------------- |
+| `GET /api/v1/blog`        | `?limit&offset` | List **published** posts, newest first (by `published_at`, falling back to `created_at`). Returns `{ posts: [{ id, title, slug, excerpt, cover_image_url, published_at }], total }` — **no full content** in the list to keep it light (default limit 20, max 100). |
+| `GET /api/v1/blog/:slug`  | —               | One **published** post by slug with full Markdown `content`: `{ post: { id, title, slug, excerpt, content, cover_image_url, published_at } }`. Returns `404` if not found **or not published** (drafts are indistinguishable from missing). |
+
+### Admin endpoints
+
+Mounted under **`/api/v1/admin/blog`**, all require a **Bearer JWT** + a role gate.
+
+| Method & path                    | Role          | Body / query           | What it does                                                                 |
+| -------------------------------- | ------------- | ---------------------- | --------------------------------------------------------------------------- |
+| `GET    /api/v1/admin/blog`      | manager/admin | `?status&limit&offset` | List **all** posts (any status), newest first; optional `status` filter. Returns `{ posts, total }` (no content). |
+| `GET    /api/v1/admin/blog/:id`  | manager/admin | —                      | Get one post by id (any status) with full content, for editing.             |
+| `POST   /api/v1/admin/blog`      | manager/admin | `{ title, slug?, excerpt?, content, cover_image_url?, status }` | Create a post. `title` + `content` required; `status` ∈ `draft`\|`published`. Slug auto-generated from title if omitted and kept unique. `author_id` is taken from the JWT. Publishing stamps `published_at`. Returns the created post. |
+| `PUT    /api/v1/admin/blog/:id`  | manager/admin | `{ title?, slug?, excerpt?, content?, cover_image_url?, status? }` | Update the supplied fields (others unchanged). Slug stays unique; transitioning to `published` stamps `published_at` if unset; `updated_at` is bumped. Returns the updated post. |
+| `DELETE /api/v1/admin/blog/:id`  | **admin**     | —                      | Permanently delete a post. Returns `{ ok: true, id }`.                       |
+
+```bash
+# Admin: create a published post (JWT)
+curl -X POST http://localhost:3000/api/v1/admin/blog \
+  -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
+  -d '{"title":"Hello World","content":"# Hi\n\nMarkdown body","status":"published"}'
+
+# Public: list published posts
+curl "http://localhost:3000/api/v1/blog?limit=10"
+
+# Public: read one post by slug
+curl http://localhost:3000/api/v1/blog/hello-world
 ```
 
 ## Deploying on Coolify

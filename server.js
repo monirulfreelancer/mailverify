@@ -11,6 +11,7 @@ const bulkRoutes = require('./src/api/bulk-routes');
 const adminRoutes = require('./src/api/admin-routes');
 const paymentRoutes = require('./src/api/payment-routes');
 const contactRoutes = require('./src/api/contact-routes');
+const blogRoutes = require('./src/api/blog-routes');
 const { warnIfAuthDisabled } = require('./src/api/auth');
 const { startWorker } = require('./src/queue/worker');
 const db = require('./src/db/pool');
@@ -67,7 +68,9 @@ app.use('/api/v1', accountRoutes); // auth (signup/login/me) + account (dashboar
 app.use('/api/v1', bulkRoutes); // bulk upload + jobs (background queue)
 app.use('/api/v1/payments', paymentRoutes); // manual payments / credit top-ups (JWT)
 app.use('/api/v1/contact', contactRoutes); // public contact form (NO auth)
+app.use('/api/v1/blog', blogRoutes.publicRouter); // public blog list + single post (NO auth)
 app.use('/api/v1/admin', adminRoutes); // admin/manager dashboard (JWT + role gates)
+app.use('/api/v1/admin/blog', blogRoutes.adminRouter); // blog authoring (JWT + role gates)
 
 // --- 404 fallback ----------------------------------------------------------
 app.use((req, res) => {

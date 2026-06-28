@@ -1428,10 +1428,264 @@ async function deleteContactMessage(id) {
   return rowCount > 0;
 }
 
+// ---------------------------------------------------------------------------
+// Blog posts  (public blog + admin/manager authoring)
+// ---------------------------------------------------------------------------
+
+const VALID_BLOG_STATUSES = ['draft', 'published'];
+
+/**
+ * Turn an arbitrary title into a url-safe slug: lowercase, spaces/underscores to
+ * hyphens, strip anything that isn't a-z/0-9/hyphen, collapse repeats, trim
+ * leading/trailing hyphens. Falls back to 'post' if nothing usable remains.
+ *
+ * @param {string} input
+ * @returns {string}
+ */
+function slugify(input) {
+  const base = String(input || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_]+/g, '-')      // whitespace/underscores -> hyphen
+    .replace(/[^a-z0-9-]+/g, '')  // drop everything not url-safe
+    .replace(/-+/g, '-')          // collapse repeated hyphens
+    .replace(/^-+|-+$/g, '');     // trim leading/trailing hyphens
+  return base || 'post';
+}
+
+/**
+ * Ensure a slug is unique in blog_posts, appending -2, -3, ... until free.
+ * An optional excludeId lets an UPDATE keep its own slug without colliding with
+ * itself. Uses parameterized lookups only.
+ *
+ * @param {string} desired   already-slugified candidate
+ * @param {number|null} [excludeId]
+ * @returns {Promise<string>} a slug guaranteed unique at check time
+ */
+async function uniqueSlug(desired, excludeId = null) {
+  let candidate = desired;
+  let n = 1;
+  // Loop until no other row holds the candidate slug. The UNIQUE constraint is
+  // the real guarantee; this just avoids a predictable first collision.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { rows } = await query(
+      `SELECT 1 FROM blog_posts WHERE slug = $1 AND ($2::int IS NULL OR id <> $2) LIMIT 1`,
+      [candidate, excludeId]
+    );
+    if (rows.length === 0) return candidate;
+    n += 1;
+    candidate = `${desired}-${n}`;
+  }
+}
+
+/**
+ * List PUBLISHED posts for the public blog, newest first (published_at, falling
+ * back to created_at). Full content is intentionally omitted to keep the list
+ * light — only excerpt is returned.
+ *
+ * @param {number} limit
+ * @param {number} offset
+ * @returns {Promise<{ posts: Array, total: number }>}
+ */
+async function listPublishedPosts(limit, offset) {
+  const listSql = `
+    SELECT id, title, slug, excerpt, cover_image_url, published_at
+      FROM blog_posts
+     WHERE status = 'published'
+     ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+     LIMIT $1 OFFSET $2
+  `;
+  const countSql = `SELECT COUNT(*)::int AS total FROM blog_posts WHERE status = 'published'`;
+
+  const [list, count] = await Promise.all([
+    query(listSql, [limit, offset]),
+    query(countSql),
+  ]);
+  return { posts: list.rows, total: count.rows[0].total };
+}
+
+/**
+ * Fetch a single PUBLISHED post by slug, with full Markdown content. Returns null
+ * if no such post exists or it isn't published.
+ *
+ * @param {string} slug
+ * @returns {Promise<object|null>}
+ */
+async function getPublishedPostBySlug(slug) {
+  const { rows } = await query(
+    `SELECT id, title, slug, excerpt, content, cover_image_url, published_at
+       FROM blog_posts
+      WHERE slug = $1 AND status = 'published'
+      LIMIT 1`,
+    [slug]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Admin/manager list of ALL posts (any status), newest first, with an optional
+ * status filter. Excludes the heavy content column from the list.
+ *
+ * @param {{ status?: string|null, limit: number, offset: number }} opts
+ * @returns {Promise<{ posts: Array, total: number }>}
+ */
+async function listAllPostsAdmin({ status = null, limit, offset }) {
+  const statusFilter = status || null;
+
+  const listSql = `
+    SELECT id, title, slug, excerpt, cover_image_url, status,
+           author_id, created_at, updated_at, published_at
+      FROM blog_posts
+     WHERE ($1::text IS NULL OR status = $1)
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3
+  `;
+  const countSql = `
+    SELECT COUNT(*)::int AS total
+      FROM blog_posts
+     WHERE ($1::text IS NULL OR status = $1)
+  `;
+
+  const [list, count] = await Promise.all([
+    query(listSql, [statusFilter, limit, offset]),
+    query(countSql, [statusFilter]),
+  ]);
+  return { posts: list.rows, total: count.rows[0].total };
+}
+
+/**
+ * Fetch one post by id regardless of status (for the admin editor). Returns the
+ * full row including content, or null if not found.
+ *
+ * @param {number} id
+ * @returns {Promise<object|null>}
+ */
+async function getBlogPostById(id) {
+  const { rows } = await query(
+    `SELECT id, title, slug, excerpt, content, cover_image_url, status,
+            author_id, created_at, updated_at, published_at
+       FROM blog_posts
+      WHERE id = $1
+      LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Create a blog post. The caller is responsible for validation; this layer
+ * generates/uniquifies the slug and stamps published_at when first published.
+ *
+ * @param {object} p
+ * @param {string} p.title
+ * @param {string|null} [p.slug]            desired slug (auto from title if empty)
+ * @param {string|null} [p.excerpt]
+ * @param {string} p.content                Markdown source
+ * @param {string|null} [p.coverImageUrl]
+ * @param {string} p.status                 'draft' | 'published'
+ * @param {number|null} [p.authorId]
+ * @returns {Promise<object>} the created post row
+ */
+async function createBlogPost({
+  title,
+  slug = null,
+  excerpt = null,
+  content,
+  coverImageUrl = null,
+  status = 'draft',
+  authorId = null,
+}) {
+  const desired = slugify(slug && slug.trim() ? slug : title);
+  const finalSlug = await uniqueSlug(desired);
+  // Stamp publish time only when the post is born published.
+  const publishedAt = status === 'published' ? new Date() : null;
+
+  const { rows } = await query(
+    `INSERT INTO blog_posts
+       (title, slug, excerpt, content, cover_image_url, status, author_id, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, title, slug, excerpt, content, cover_image_url, status,
+               author_id, created_at, updated_at, published_at`,
+    [title, finalSlug, excerpt, content, coverImageUrl, status, authorId, publishedAt]
+  );
+  return rows[0];
+}
+
+/**
+ * Update a blog post by id. Only the provided fields are changed (others keep
+ * their current value via COALESCE). The slug, if supplied, is re-slugified and
+ * kept unique (excluding this row). Transitioning to 'published' stamps
+ * published_at if it was never set. updated_at is always bumped.
+ *
+ * @param {number} id
+ * @param {object} fields
+ * @param {string} [fields.title]
+ * @param {string} [fields.slug]
+ * @param {string|null} [fields.excerpt]
+ * @param {string} [fields.content]
+ * @param {string|null} [fields.coverImageUrl]
+ * @param {string} [fields.status]
+ * @returns {Promise<object|null>} updated row, or null if no post with that id
+ */
+async function updateBlogPost(id, fields = {}) {
+  const existing = await getBlogPostById(id);
+  if (!existing) return null;
+
+  const title = fields.title !== undefined ? fields.title : existing.title;
+  const excerpt = fields.excerpt !== undefined ? fields.excerpt : existing.excerpt;
+  const content = fields.content !== undefined ? fields.content : existing.content;
+  const coverImageUrl =
+    fields.coverImageUrl !== undefined ? fields.coverImageUrl : existing.cover_image_url;
+  const status = fields.status !== undefined ? fields.status : existing.status;
+
+  // Slug: only recompute when explicitly provided; otherwise keep current.
+  let slug = existing.slug;
+  if (fields.slug !== undefined) {
+    const desired = slugify(fields.slug && fields.slug.trim() ? fields.slug : title);
+    slug = await uniqueSlug(desired, id);
+  }
+
+  // First transition into 'published' stamps published_at (if not already set).
+  let publishedAt = existing.published_at;
+  if (status === 'published' && !publishedAt) {
+    publishedAt = new Date();
+  }
+
+  const { rows } = await query(
+    `UPDATE blog_posts SET
+       title = $2,
+       slug = $3,
+       excerpt = $4,
+       content = $5,
+       cover_image_url = $6,
+       status = $7,
+       published_at = $8,
+       updated_at = now()
+     WHERE id = $1
+     RETURNING id, title, slug, excerpt, content, cover_image_url, status,
+               author_id, created_at, updated_at, published_at`,
+    [id, title, slug, excerpt, content, coverImageUrl, status, publishedAt]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Delete a blog post by id. Returns true if a row was removed.
+ * @param {number} id
+ * @returns {Promise<boolean>}
+ */
+async function deleteBlogPost(id) {
+  const { rowCount } = await query('DELETE FROM blog_posts WHERE id = $1', [id]);
+  return rowCount > 0;
+}
+
 module.exports = {
   DOMAIN_CACHE_TTL_MS,
   SIGNUP_FREE_CREDITS,
   VALID_CONTACT_STATUSES,
+  VALID_BLOG_STATUSES,
+  slugify,
   getUserByApiKeyHash,
   touchApiKeyLastUsed,
   getCreditBalance,
@@ -1488,4 +1742,12 @@ module.exports = {
   listContactMessages,
   updateContactStatus,
   deleteContactMessage,
+  // Blog posts
+  listPublishedPosts,
+  getPublishedPostBySlug,
+  listAllPostsAdmin,
+  getBlogPostById,
+  createBlogPost,
+  updateBlogPost,
+  deleteBlogPost,
 };
